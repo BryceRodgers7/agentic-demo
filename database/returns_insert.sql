@@ -1,17 +1,4 @@
 -- =====================
--- NEW ORDERS (FOR RETURNS)
--- =====================
-
-INSERT INTO orders
-(customer_name, customer_email, customer_phone, shipping_address, zip_code, city, state, status, total_amount)
-VALUES
-('Aaron Blake','aaron.blake@email.com','555-2001','410 Cedar St','90028','Los Angeles','CA','delivered',399.00),
-('Bianca Lopez','bianca.lopez@email.com','555-2002','77 Market St','94103','San Francisco','CA','delivered',249.00),
-('Connor Mills','connor.mills@email.com','555-2003','18 Lakeview Dr','53703','Madison','WI','delivered',699.00),
-('Danielle Frost','danielle.frost@email.com','555-2004','950 Union Ave','10003','New York','NY','delivered',1299.00),
-('Ethan Wu','ethan.wu@email.com','555-2005','62 Willow Rd','92618','Irvine','CA','delivered',199.00);
-
--- =====================
 -- RETURNS
 -- =====================
 

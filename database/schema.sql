@@ -56,26 +56,30 @@ CREATE TABLE IF NOT EXISTS support_tickets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     customer_name TEXT NOT NULL,
     customer_email TEXT,
+    product_id INTEGER DEFAULT NULL,
     issue_description TEXT NOT NULL,
     priority TEXT DEFAULT 'medium',
     status TEXT DEFAULT 'open',
     assigned_to TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    resolved_at TIMESTAMP
+    resolved_at TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES products(id)
 );
 
 -- Returns table
 CREATE TABLE IF NOT EXISTS returns (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id INTEGER NOT NULL,
+    product_id INTEGER NOT NULL,
     return_reason TEXT NOT NULL,
     status TEXT DEFAULT 'pending',
     refund_amount REAL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     processed_at TIMESTAMP,
-    FOREIGN KEY (order_id) REFERENCES orders(id)
+    FOREIGN KEY (order_id) REFERENCES orders(id),
+    FOREIGN KEY (product_id) REFERENCES products(id)
 );
 
 -- Indexes for better query performance
