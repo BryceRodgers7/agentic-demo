@@ -2,7 +2,7 @@
 -- RETURNS
 -- =====================
 
-INSERT INTO returns
+INSERT INTO return_orders
 (order_id, product_id, return_reason, status, refund_amount, processed_at)
 VALUES
 (26,1,'Noise cancellation performance did not meet expectations.','approved',399.00,'2025-01-04 10:15:00'),

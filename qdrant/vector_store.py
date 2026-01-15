@@ -22,7 +22,7 @@ class VectorStore:
         self.collection_name = collection_name
         
         if not self.url or not self.api_key:
-            print("Warning: Qdrant URL or API key not configured. Vector search will be limited.")
+            print("Warning: Qdrant URL or API key not configured. Vector search won't work.")
             self.client = None
         else:
             try:

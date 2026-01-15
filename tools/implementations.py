@@ -2,7 +2,7 @@
 import json
 from typing import Dict, Any, List, Optional
 from database.db_manager import DatabaseManager
-from database.vector_store import VectorStore
+from qdrant.vector_store import VectorStore
 
 
 class ToolImplementations:

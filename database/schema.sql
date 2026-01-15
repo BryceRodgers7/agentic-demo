@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS support_tickets (
 );
 
 -- Returns table
-CREATE TABLE IF NOT EXISTS returns (
+CREATE TABLE IF NOT EXISTS return_orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id INTEGER NOT NULL,
     product_id INTEGER NOT NULL,
@@ -87,6 +87,6 @@ CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_name);
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
 CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status);
-CREATE INDEX IF NOT EXISTS idx_returns_status ON returns(status);
+CREATE INDEX IF NOT EXISTS idx_return_orders_status ON return_orders(status);
 
 -- why is this not showing
