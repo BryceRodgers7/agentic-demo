@@ -37,6 +37,7 @@ WELCOME_MESSAGE = """Hello! Welcome to Customer Support. I'm here to help you wi
 - 🔄 Returns and refunds
 - 🎫 Support tickets for complex issues
 - 📚 Knowledge base articles
+- 📱 Chat with a human agent
 
 How can I assist you today?"""
 
