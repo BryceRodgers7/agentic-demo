@@ -1,8 +1,12 @@
 """Tool implementations for customer support chatbot."""
 import json
+import logging
 from typing import Dict, Any, List, Optional
 from database.db_manager import DatabaseManager
 from qdrant.vector_store import VectorStore
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 
 class ToolImplementations:
@@ -279,7 +283,9 @@ class ToolImplementations:
             Result dictionary with search results
         """
         try:
+            logger.info(f"Searching knowledge base with query: '{query}'")
             results = self.vector_store.search_by_text(query, limit=5)
+            logger.info(f"Knowledge base returned {len(results)} results")
             
             # Format results for display
             articles = []
@@ -293,6 +299,8 @@ class ToolImplementations:
                     'url': payload.get('url', '')
                 })
             
+            logger.info(f"Formatted {len(articles)} articles for display")
+            
             return {
                 "success": True,
                 "query": query,
@@ -301,6 +309,7 @@ class ToolImplementations:
                 "message": f"Found {len(articles)} relevant article(s)"
             }
         except Exception as e:
+            logger.error(f"Error searching knowledge base: {str(e)}", exc_info=True)
             return {
                 "success": False,
                 "error": str(e)
@@ -316,6 +325,9 @@ class ToolImplementations:
         Returns:
             Tool execution result
         """
+        logger.info(f"Executing tool: {tool_name}")
+        logger.debug(f"Tool arguments: {json.dumps(arguments, indent=2)}")
+        
         # Map tool names to methods
         tool_map = {
             "create_order": self.create_order,
@@ -329,6 +341,7 @@ class ToolImplementations:
         }
         
         if tool_name not in tool_map:
+            logger.error(f"Unknown tool requested: {tool_name}")
             return {
                 "success": False,
                 "error": f"Unknown tool: {tool_name}"
@@ -337,13 +350,16 @@ class ToolImplementations:
         try:
             tool_func = tool_map[tool_name]
             result = tool_func(**arguments)
+            logger.info(f"Tool {tool_name} completed with success={result.get('success', False)}")
             return result
         except TypeError as e:
+            logger.error(f"Invalid arguments for {tool_name}: {str(e)}", exc_info=True)
             return {
                 "success": False,
                 "error": f"Invalid arguments for {tool_name}: {str(e)}"
             }
         except Exception as e:
+            logger.error(f"Error executing {tool_name}: {str(e)}", exc_info=True)
             return {
                 "success": False,
                 "error": f"Error executing {tool_name}: {str(e)}"

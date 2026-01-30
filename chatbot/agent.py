@@ -1,11 +1,16 @@
 """OpenAI agent for customer support chatbot."""
 import os
 import json
+import logging
 from typing import List, Dict, Any, Optional, Tuple
 from openai import OpenAI
 from tools.schemas import TOOL_SCHEMAS
 from tools.implementations import ToolImplementations
 from chatbot.prompts import SYSTEM_PROMPT
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
 class CustomerSupportAgent:
@@ -90,8 +95,18 @@ class CustomerSupportAgent:
                         function_name = tool_call.function.name
                         function_args = json.loads(tool_call.function.arguments)
                         
+                        # Log tool call initiation
+                        logger.info(f"=" * 80)
+                        logger.info(f"TOOL CALL: {function_name}")
+                        logger.info(f"Parameters: {json.dumps(function_args, indent=2)}")
+                        
                         # Execute the tool
                         result = self.tools.execute_tool(function_name, function_args)
+                        
+                        # Log tool result
+                        logger.info(f"Result: {json.dumps(result, indent=2)}")
+                        logger.info(f"Success: {result.get('success', False)}")
+                        logger.info(f"=" * 80)
                         
                         # Track tool call
                         tool_calls_made.append({

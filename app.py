@@ -1,10 +1,15 @@
 """Streamlit main chat interface for customer support chatbot."""
 import streamlit as st
 import os
+import logging
 from datetime import datetime
 from chatbot.agent import CustomerSupportAgent
 from chatbot.prompts import WELCOME_MESSAGE
 from tools.schemas import get_tool_descriptions
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
 # Page configuration
@@ -106,7 +111,10 @@ def render_tool_calls(tool_calls):
         tool_calls: List of tool call dictionaries
     """
     if not tool_calls:
+        logger.debug("No tool calls to render")
         return
+    
+    logger.info(f"Rendering tool calls section with {len(tool_calls)} calls")
     
     with st.expander(f"🔧 Tools Used ({len(tool_calls)})", expanded=False):
         for i, call in enumerate(tool_calls, 1):
@@ -114,6 +122,8 @@ def render_tool_calls(tool_calls):
             arguments = call['arguments']
             result = call['result']
             success = result.get('success', False)
+            
+            logger.debug(f"Rendering tool call {i}: {tool_name} (success={success})")
             
             st.markdown(f"**{i}. {tool_name}**")
             
@@ -199,15 +209,26 @@ def main():
                     st.session_state.conversation_history
                 )
             
+            # Log response summary
+            logger.info(f"\n{'='*80}")
+            logger.info(f"USER QUERY: {prompt}")
+            logger.info(f"TOOLS USED: {len(tool_calls)}")
+            if tool_calls:
+                for idx, tool_call in enumerate(tool_calls, 1):
+                    logger.info(f"  {idx}. {tool_call['tool']}")
+            logger.info(f"{'='*80}\n")
+            
             # Display response
             st.markdown(response)
             
             # Display tool calls
             if tool_calls:
+                logger.info(f"Rendering {len(tool_calls)} tool call(s) in UI")
                 render_tool_calls(tool_calls)
                 
                 # Update tool usage tracking
                 st.session_state.tool_usage.extend(tool_calls)
+                logger.info(f"Total tools used in session: {len(st.session_state.tool_usage)}")
         
         # Add assistant message to chat history
         st.session_state.messages.append({
