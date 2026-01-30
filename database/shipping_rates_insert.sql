@@ -1,4 +1,4 @@
-INSERT INTO shipping_rates (carrier, service_type, zip_code, base_rate, per_lb_rate, estimated_days)
+INSERT INTO agent_shipping_rates (carrier, service_type, zip_code, base_rate, per_lb_rate, estimated_days)
 VALUES
 -- UPS Ground Services
 ('UPS','Ground','80202',8.99,1.25,4),
@@ -40,7 +40,7 @@ VALUES
 ('UPS','Ground','08701',10.29,1.40,5),
 ('UPS','Ground','77449',8.99,1.25,4),
 ('UPS','Ground','11368',10.49,1.40,5),
-('UPS','Ground','90011',9.29,1.30,5);
+('UPS','Ground','90011',9.29,1.30,5),
 
 -- USPS Services
 ('USPS','First Class','90210',5.49,0.85,3),

@@ -5,6 +5,10 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter
 
 
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+QDRANT_URL = os.getenv("QDRANT_URL")
+COLLECTION_NAME = "knowledge_base"
+
 class VectorStore:
     """Manages Qdrant vector database for semantic search."""
     

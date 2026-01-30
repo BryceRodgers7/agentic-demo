@@ -1,4 +1,4 @@
-INSERT INTO support_tickets
+INSERT INTO agent_support_tickets
 (customer_name, customer_email, product_id, issue_description, priority, status, assigned_to, resolved_at)
 VALUES
 ('Alice Morgan','alice.morgan@email.com',1,'Active noise cancellation intermittently stops working during calls.','high','open','Tier 2 Audio',NULL),

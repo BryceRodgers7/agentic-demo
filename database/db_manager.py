@@ -1,21 +1,26 @@
-"""SQLite database manager for customer support system."""
-import sqlite3
+"""PostgreSQL database manager for customer support system."""
+import psycopg2
+import psycopg2.extras
 import os
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 from contextlib import contextmanager
 
+DB_URL = os.getenv("SUPADATABASE_URL")
+
 
 class DatabaseManager:
-    """Manages SQLite database connections and operations."""
+    """Manages PostgreSQL database connections and operations."""
     
-    def __init__(self, db_path: str = "customer_support.db"):
+    def __init__(self, db_url: Optional[str] = None):
         """Initialize database manager.
         
         Args:
-            db_path: Path to SQLite database file
+            db_url: PostgreSQL connection URL (defaults to SUPADATABASE_URL env var)
         """
-        self.db_path = db_path
+        self.db_url = db_url or DB_URL
+        if not self.db_url:
+            raise ValueError("Database URL not provided. Set SUPADATABASE_URL environment variable.")
         self._initialize_database()
     
     def _initialize_database(self):
@@ -26,7 +31,8 @@ class DatabaseManager:
             schema_sql = f.read()
         
         with self.get_connection() as conn:
-            conn.executescript(schema_sql)
+            with conn.cursor() as cursor:
+                cursor.execute(schema_sql)
             conn.commit()
     
     @contextmanager
@@ -34,10 +40,9 @@ class DatabaseManager:
         """Context manager for database connections.
         
         Yields:
-            sqlite3.Connection: Database connection
+            psycopg2.Connection: Database connection
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = psycopg2.connect(self.db_url)
         try:
             yield conn
         finally:
@@ -55,21 +60,22 @@ class DatabaseManager:
             List of product dictionaries
         """
         with self.get_connection() as conn:
-            query = "SELECT * FROM products WHERE 1=1"
-            params = []
-            
-            if category:
-                query += " AND category = ?"
-                params.append(category)
-            
-            if search_query:
-                query += " AND (name LIKE ? OR description LIKE ?)"
-                params.extend([f"%{search_query}%", f"%{search_query}%"])
-            
-            query += " ORDER BY name"
-            
-            cursor = conn.execute(query, params)
-            return [dict(row) for row in cursor.fetchall()]
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                query = "SELECT * FROM agent_products WHERE 1=1" # what is the point of this??
+                params = []
+                
+                if category:
+                    query += " AND category = %s"
+                    params.append(category)
+                
+                if search_query:
+                    query += " AND (name ILIKE %s OR description ILIKE %s)"
+                    params.extend([f"%{search_query}%", f"%{search_query}%"])
+                
+                query += " ORDER BY name"
+                
+                cursor.execute(query, params)
+                return [dict(row) for row in cursor.fetchall()]
     
     def get_product_by_id(self, product_id: int) -> Optional[Dict[str, Any]]:
         """Get a single product by ID.
@@ -81,9 +87,10 @@ class DatabaseManager:
             Product dictionary or None
         """
         with self.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                cursor.execute("SELECT * FROM agent_products WHERE id = %s", (product_id,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
     
     def check_inventory(self, product_id: int) -> Optional[int]:
         """Check inventory for a product.
@@ -95,9 +102,10 @@ class DatabaseManager:
             Stock quantity or None if product not found
         """
         with self.get_connection() as conn:
-            cursor = conn.execute("SELECT stock_quantity FROM products WHERE id = ?", (product_id,))
-            row = cursor.fetchone()
-            return row['stock_quantity'] if row else None
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                cursor.execute("SELECT stock_quantity FROM agent_products WHERE id = %s", (product_id,))
+                row = cursor.fetchone()
+                return row['stock_quantity'] if row else None
     
     def update_inventory(self, product_id: int, quantity_change: int):
         """Update product inventory.
@@ -107,10 +115,11 @@ class DatabaseManager:
             quantity_change: Change in quantity (positive or negative)
         """
         with self.get_connection() as conn:
-            conn.execute(
-                "UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?",
-                (quantity_change, product_id)
-            )
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE agent_products SET stock_quantity = stock_quantity + %s WHERE id = %s",
+                    (quantity_change, product_id)
+                )
             conn.commit()
     
     # Order operations
@@ -130,42 +139,43 @@ class DatabaseManager:
             New order ID
         """
         with self.get_connection() as conn:
-            # Calculate total
-            total_amount = 0
-            order_items = []
-            
-            for product_id, quantity in zip(product_ids, quantities):
-                cursor = conn.execute("SELECT price FROM products WHERE id = ?", (product_id,))
-                row = cursor.fetchone()
-                if row:
-                    price = row['price']
-                    total_amount += price * quantity
-                    order_items.append((product_id, quantity, price))
-            
-            # Create order
-            cursor = conn.execute(
-                """INSERT INTO orders (customer_name, customer_email, customer_phone, 
-                   shipping_address, total_amount, status) 
-                   VALUES (?, ?, ?, ?, ?, 'pending')""",
-                (customer_name, customer_email, customer_phone, shipping_address, total_amount)
-            )
-            order_id = cursor.lastrowid
-            
-            # Create order items
-            for product_id, quantity, price in order_items:
-                conn.execute(
-                    """INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase)
-                       VALUES (?, ?, ?, ?)""",
-                    (order_id, product_id, quantity, price)
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                # Calculate total
+                total_amount = 0
+                order_items = []
+                
+                for product_id, quantity in zip(product_ids, quantities):
+                    cursor.execute("SELECT price FROM agent_products WHERE id = %s", (product_id,))
+                    row = cursor.fetchone()
+                    if row:
+                        price = row['price']
+                        total_amount += float(price) * quantity
+                        order_items.append((product_id, quantity, price))
+                
+                # Create order
+                cursor.execute(
+                    """INSERT INTO agent_orders (customer_name, customer_email, customer_phone, 
+                       shipping_address, total_amount, status) 
+                       VALUES (%s, %s, %s, %s, %s, 'pending') RETURNING id""",
+                    (customer_name, customer_email, customer_phone, shipping_address, total_amount)
                 )
-                # Update inventory
-                conn.execute(
-                    "UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?",
-                    (quantity, product_id)
-                )
-            
-            conn.commit()
-            return order_id
+                order_id = cursor.fetchone()['id']
+                
+                # Create order items
+                for product_id, quantity, price in order_items:
+                    cursor.execute(
+                        """INSERT INTO agent_order_items (order_id, product_id, quantity, price_at_purchase)
+                           VALUES (%s, %s, %s, %s)""",
+                        (order_id, product_id, quantity, price)
+                    )
+                    # Update inventory
+                    cursor.execute(
+                        "UPDATE agent_products SET stock_quantity = stock_quantity - %s WHERE id = %s",
+                        (quantity, product_id)
+                    )
+                
+                conn.commit()
+                return order_id
     
     def get_order(self, order_id: int) -> Optional[Dict[str, Any]]:
         """Get order details.
@@ -177,26 +187,27 @@ class DatabaseManager:
             Order dictionary with items or None
         """
         with self.get_connection() as conn:
-            # Get order
-            cursor = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
-            order_row = cursor.fetchone()
-            
-            if not order_row:
-                return None
-            
-            order = dict(order_row)
-            
-            # Get order items
-            cursor = conn.execute(
-                """SELECT oi.*, p.name as product_name 
-                   FROM order_items oi 
-                   JOIN products p ON oi.product_id = p.id 
-                   WHERE oi.order_id = ?""",
-                (order_id,)
-            )
-            order['items'] = [dict(row) for row in cursor.fetchall()]
-            
-            return order
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                # Get order
+                cursor.execute("SELECT * FROM agent_orders WHERE id = %s", (order_id,))
+                order_row = cursor.fetchone()
+                
+                if not order_row:
+                    return None
+                
+                order = dict(order_row)
+                
+                # Get order items
+                cursor.execute(
+                    """SELECT oi.*, p.name as product_name 
+                       FROM agent_order_items oi 
+                       JOIN agent_products p ON oi.product_id = p.id 
+                       WHERE oi.order_id = %s""",
+                    (order_id,)
+                )
+                order['items'] = [dict(row) for row in cursor.fetchall()]
+                
+                return order
     
     def get_all_orders(self) -> List[Dict[str, Any]]:
         """Get all orders.
@@ -205,8 +216,9 @@ class DatabaseManager:
             List of order dictionaries
         """
         with self.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM orders ORDER BY created_at DESC")
-            return [dict(row) for row in cursor.fetchall()]
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                cursor.execute("SELECT * FROM agent_orders ORDER BY created_at DESC")
+                return [dict(row) for row in cursor.fetchall()]
     
     def update_order_status(self, order_id: int, status: str):
         """Update order status.
@@ -216,10 +228,11 @@ class DatabaseManager:
             status: New status
         """
         with self.get_connection() as conn:
-            conn.execute(
-                "UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (status, order_id)
-            )
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE agent_orders SET status = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
+                    (status, order_id)
+                )
             conn.commit()
     
     # Shipping operations
@@ -233,15 +246,16 @@ class DatabaseManager:
             List of shipping rate dictionaries
         """
         with self.get_connection() as conn:
-            if service_type:
-                cursor = conn.execute(
-                    "SELECT * FROM shipping_rates WHERE service_type = ? ORDER BY base_rate",
-                    (service_type,)
-                )
-            else:
-                cursor = conn.execute("SELECT * FROM shipping_rates ORDER BY base_rate")
-            
-            return [dict(row) for row in cursor.fetchall()]
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                if service_type:
+                    cursor.execute(
+                        "SELECT * FROM agent_shipping_rates WHERE service_type = %s ORDER BY base_rate",
+                        (service_type,)
+                    )
+                else:
+                    cursor.execute("SELECT * FROM agent_shipping_rates ORDER BY base_rate")
+                
+                return [dict(row) for row in cursor.fetchall()]
     
     def estimate_shipping(self, weight_lbs: float, service_level: str = 'standard') -> Optional[Dict[str, Any]]:
         """Estimate shipping cost.
@@ -254,24 +268,25 @@ class DatabaseManager:
             Shipping estimate dictionary or None
         """
         with self.get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT * FROM shipping_rates WHERE service_type = ? ORDER BY base_rate LIMIT 1",
-                (service_level,)
-            )
-            row = cursor.fetchone()
-            
-            if not row:
-                return None
-            
-            rate = dict(row)
-            total_cost = rate['base_rate'] + (rate['per_lb_rate'] * weight_lbs)
-            
-            return {
-                'carrier': rate['carrier'],
-                'service_type': rate['service_type'],
-                'estimated_cost': round(total_cost, 2),
-                'estimated_days': rate['estimated_days']
-            }
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                cursor.execute(
+                    "SELECT * FROM agent_shipping_rates WHERE service_type = %s ORDER BY base_rate LIMIT 1",
+                    (service_level,)
+                )
+                row = cursor.fetchone()
+                
+                if not row:
+                    return None
+                
+                rate = dict(row)
+                total_cost = float(rate['base_rate']) + (float(rate['per_lb_rate']) * weight_lbs)
+                
+                return {
+                    'carrier': rate['carrier'],
+                    'service_type': rate['service_type'],
+                    'estimated_cost': round(total_cost, 2),
+                    'estimated_days': rate['estimated_days']
+                }
     
     # Support ticket operations
     def create_support_ticket(self, customer_name: str, customer_email: str,
@@ -288,13 +303,15 @@ class DatabaseManager:
             New ticket ID
         """
         with self.get_connection() as conn:
-            cursor = conn.execute(
-                """INSERT INTO support_tickets (customer_name, customer_email, issue_description, priority, status)
-                   VALUES (?, ?, ?, ?, 'open')""",
-                (customer_name, customer_email, issue_description, priority)
-            )
-            conn.commit()
-            return cursor.lastrowid
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                cursor.execute(
+                    """INSERT INTO agent_support_tickets (customer_name, customer_email, issue_description, priority, status)
+                       VALUES (%s, %s, %s, %s, 'open') RETURNING id""",
+                    (customer_name, customer_email, issue_description, priority)
+                )
+                ticket_id = cursor.fetchone()['id']
+                conn.commit()
+                return ticket_id
     
     def get_support_ticket(self, ticket_id: int) -> Optional[Dict[str, Any]]:
         """Get support ticket details.
@@ -306,9 +323,10 @@ class DatabaseManager:
             Ticket dictionary or None
         """
         with self.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM support_tickets WHERE id = ?", (ticket_id,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                cursor.execute("SELECT * FROM agent_support_tickets WHERE id = %s", (ticket_id,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
     
     def get_all_support_tickets(self) -> List[Dict[str, Any]]:
         """Get all support tickets.
@@ -317,8 +335,9 @@ class DatabaseManager:
             List of ticket dictionaries
         """
         with self.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM support_tickets ORDER BY created_at DESC")
-            return [dict(row) for row in cursor.fetchall()]
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                cursor.execute("SELECT * FROM agent_support_tickets ORDER BY created_at DESC")
+                return [dict(row) for row in cursor.fetchall()]
     
     def update_ticket_status(self, ticket_id: int, status: str):
         """Update ticket status.
@@ -328,18 +347,19 @@ class DatabaseManager:
             status: New status
         """
         with self.get_connection() as conn:
-            if status == 'resolved':
-                conn.execute(
-                    """UPDATE support_tickets 
-                       SET status = ?, updated_at = CURRENT_TIMESTAMP, resolved_at = CURRENT_TIMESTAMP 
-                       WHERE id = ?""",
-                    (status, ticket_id)
-                )
-            else:
-                conn.execute(
-                    "UPDATE support_tickets SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    (status, ticket_id)
-                )
+            with conn.cursor() as cursor:
+                if status == 'resolved':
+                    cursor.execute(
+                        """UPDATE agent_support_tickets 
+                           SET status = %s, updated_at = CURRENT_TIMESTAMP, resolved_at = CURRENT_TIMESTAMP 
+                           WHERE id = %s""",
+                        (status, ticket_id)
+                    )
+                else:
+                    cursor.execute(
+                        "UPDATE agent_support_tickets SET status = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
+                        (status, ticket_id)
+                    )
             conn.commit()
     
     # Return operations
@@ -354,22 +374,32 @@ class DatabaseManager:
             New return ID
         """
         with self.get_connection() as conn:
-            # Get order total for refund calculation
-            cursor = conn.execute("SELECT total_amount FROM orders WHERE id = ?", (order_id,))
-            row = cursor.fetchone()
-            
-            if not row:
-                raise ValueError(f"Order {order_id} not found")
-            
-            refund_amount = row['total_amount']
-            
-            cursor = conn.execute(
-                """INSERT INTO returns (order_id, return_reason, status, refund_amount)
-                   VALUES (?, ?, 'pending', ?)""",
-                (order_id, return_reason, refund_amount)
-            )
-            conn.commit()
-            return cursor.lastrowid
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                # Get order total for refund calculation and first product
+                cursor.execute(
+                    """SELECT o.total_amount, oi.product_id 
+                       FROM agent_orders o 
+                       LEFT JOIN agent_order_items oi ON o.id = oi.order_id 
+                       WHERE o.id = %s 
+                       LIMIT 1""",
+                    (order_id,)
+                )
+                row = cursor.fetchone()
+                
+                if not row:
+                    raise ValueError(f"Order {order_id} not found")
+                
+                refund_amount = row['total_amount']
+                product_id = row['product_id'] or 1  # Default to 1 if no items
+                
+                cursor.execute(
+                    """INSERT INTO agent_return_orders (order_id, return_reason, status, refund_amount, product_id)
+                       VALUES (%s, %s, 'pending', %s, %s) RETURNING id""",
+                    (order_id, return_reason, refund_amount, product_id)
+                )
+                return_id = cursor.fetchone()['id']
+                conn.commit()
+                return return_id
     
     def get_return(self, return_id: int) -> Optional[Dict[str, Any]]:
         """Get return details.
@@ -381,9 +411,10 @@ class DatabaseManager:
             Return dictionary or None
         """
         with self.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM returns WHERE id = ?", (return_id,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                cursor.execute("SELECT * FROM agent_return_orders WHERE id = %s", (return_id,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
     
     def get_all_returns(self) -> List[Dict[str, Any]]:
         """Get all returns.
@@ -392,8 +423,9 @@ class DatabaseManager:
             List of return dictionaries
         """
         with self.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM returns ORDER BY created_at DESC")
-            return [dict(row) for row in cursor.fetchall()]
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                cursor.execute("SELECT * FROM agent_return_orders ORDER BY created_at DESC")
+                return [dict(row) for row in cursor.fetchall()]
     
     def update_return_status(self, return_id: int, status: str):
         """Update return status.
@@ -403,17 +435,18 @@ class DatabaseManager:
             status: New status
         """
         with self.get_connection() as conn:
-            if status == 'processed':
-                conn.execute(
-                    """UPDATE returns 
-                       SET status = ?, updated_at = CURRENT_TIMESTAMP, processed_at = CURRENT_TIMESTAMP 
-                       WHERE id = ?""",
-                    (status, return_id)
-                )
-            else:
-                conn.execute(
-                    "UPDATE returns SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    (status, return_id)
-                )
+            with conn.cursor() as cursor:
+                if status == 'processed':
+                    cursor.execute(
+                        """UPDATE agent_return_orders 
+                           SET status = %s, updated_at = CURRENT_TIMESTAMP, processed_at = CURRENT_TIMESTAMP 
+                           WHERE id = %s""",
+                        (status, return_id)
+                    )
+                else:
+                    cursor.execute(
+                        "UPDATE agent_return_orders SET status = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
+                        (status, return_id)
+                    )
             conn.commit()
 

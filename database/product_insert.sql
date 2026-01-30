@@ -1,4 +1,4 @@
-INSERT INTO products (name, specifications, description, price, category, stock_quantity)
+INSERT INTO agent_products (name, specifications, description, price, category, stock_quantity)
 VALUES
 ('Protis Aether X1 Wireless Headphones',
  'Bluetooth 5.3, Adaptive ANC, 40mm drivers, USB-C charging',

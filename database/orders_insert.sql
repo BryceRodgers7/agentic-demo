@@ -2,7 +2,7 @@
 -- ORDERS
 -- =====================
 
-INSERT INTO orders
+INSERT INTO agent_orders
 (customer_name, customer_email, customer_phone, shipping_address, zip_code, city, state, status, total_amount)
 VALUES
 ('Alice Morgan','alice.morgan@email.com','555-1001','12 Oak St','80202','Denver','CO','shipped',1597.00),
@@ -36,7 +36,7 @@ VALUES
 -- ORDER ITEMS
 -- =====================
 
-INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase) VALUES
+INSERT INTO agent_order_items (order_id, product_id, quantity, price_at_purchase) VALUES
 -- Order 1
 (1,1,1,399.00),(1,3,1,899.00),(1,20,1,149.00),(1,10,1,199.00),
 
@@ -117,7 +117,7 @@ INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase) VALU
 -- NEW ORDERS (FOR RETURNS)
 -- =====================
 
-INSERT INTO orders
+INSERT INTO agent_orders
 (customer_name, customer_email, customer_phone, shipping_address, zip_code, city, state, status, total_amount)
 VALUES
 ('Aaron Blake','aaron.blake@email.com','555-2001','410 Cedar St','90028','Los Angeles','CA','delivered',399.00),
@@ -126,7 +126,7 @@ VALUES
 ('Danielle Frost','danielle.frost@email.com','555-2004','950 Union Ave','10003','New York','NY','delivered',1299.00),
 ('Ethan Wu','ethan.wu@email.com','555-2005','62 Willow Rd','92618','Irvine','CA','delivered',199.00);
 
-INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase)
+INSERT INTO agent_order_items (order_id, product_id, quantity, price_at_purchase)
 VALUES
 -- Order 26 (Aether X1 returned, additional item kept)
 (26,1,1,399.00),
