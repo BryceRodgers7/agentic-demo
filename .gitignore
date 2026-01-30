@@ -52,3 +52,5 @@ Thumbs.db
 # Logs
 *.log
 
+# Output files
+qdrant/chunk_metadata.txt

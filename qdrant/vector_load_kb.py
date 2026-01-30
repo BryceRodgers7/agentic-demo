@@ -16,7 +16,8 @@ embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")  # fast + good dem
 
 # 0) Load chunks from JSON file
 print("Loading chunks from chunks.json...")
-with open("chunks.json", "r", encoding="utf-8") as f:
+chunks_path = os.path.join(os.path.dirname(__file__), "chunks.json")
+with open(chunks_path, "r", encoding="utf-8") as f:
     data = json.load(f)
     chunks = data["chunks"]  # Extract the chunks array from the JSON
 
@@ -48,12 +49,16 @@ for idx, (c, v) in enumerate(zip(chunks, vectors_iter)):
         # Convert numpy array to list of floats
         vector_list = [float(x) for x in v]
         
-        # Store entire chunk as payload (including all metadata)
+        # Rename 'id' to 'chunk_id' in payload to avoid confusion
+        payload = {**c}
+        payload['chunk_id'] = payload.pop('id')
+        
+        # Use numeric index as Qdrant point ID (required by Qdrant)
         points.append(
             PointStruct(
-                id=c["id"],  # Use chunk ID as the point ID
+                id=idx,  # Use numeric index as point ID
                 vector=vector_list,
-                payload=c,  # Store the entire chunk including metadata
+                payload=payload,  # Store the entire chunk with chunk_id
             ),
         )
     except Exception as e:
@@ -73,7 +78,7 @@ product_id_counts = defaultdict(int)
 tag_counts = defaultdict(int)
 
 for chunk in chunks:
-    # Create sorted list entry: id + title
+    # Create sorted list entry: chunk_id + title
     chunk_list.append(f"{chunk['id']}: {chunk['title']}")
     
     # Count by audience
@@ -105,7 +110,8 @@ chunk_list.sort()
 
 # 7) Write metadata to file
 print("Writing metadata to chunk_metadata.txt...")
-with open("chunk_metadata.txt", "w", encoding="utf-8") as f:
+metadata_path = os.path.join(os.path.dirname(__file__), "chunk_metadata.txt")
+with open(metadata_path, "w", encoding="utf-8") as f:
     f.write("=" * 80 + "\n")
     f.write("CHUNK METADATA REPORT\n")
     f.write("=" * 80 + "\n\n")
