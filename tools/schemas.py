@@ -5,8 +5,47 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "draft_order",
+            "description": "Draft an order and validate all required information before creating it. Use this FIRST before create_order to check what information is needed from the customer.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "customer_name": {
+                        "type": "string",
+                        "description": "Full name of the customer (if provided)"
+                    },
+                    "customer_email": {
+                        "type": "string",
+                        "description": "Email address of the customer (if provided)"
+                    },
+                    "customer_phone": {
+                        "type": "string",
+                        "description": "Phone number of the customer (if provided)"
+                    },
+                    "shipping_address": {
+                        "type": "string",
+                        "description": "Complete shipping address including street, city, state, and ZIP (if provided)"
+                    },
+                    "product_ids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "List of product IDs to order (if provided)"
+                    },
+                    "quantities": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "List of quantities for each product (if provided)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "create_order",
-            "description": "Create a new customer order with products and shipping information",
+            "description": "Create a new customer order with products and shipping information. ONLY use this after draft_order confirms all information is complete.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -111,14 +150,9 @@ TOOL_SCHEMAS = [
                     "weight": {
                         "type": "number",
                         "description": "Package weight in pounds"
-                    },
-                    "service_level": {
-                        "type": "string",
-                        "enum": ["standard", "express", "overnight"],
-                        "description": "Shipping service level"
                     }
                 },
-                "required": ["destination_zip", "weight", "service_level"]
+                "required": ["destination_zip", "weight"]
             }
         }
     },

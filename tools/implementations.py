@@ -23,6 +23,149 @@ class ToolImplementations:
         self.db = db_manager or DatabaseManager()
         self.vector_store = vector_store or VectorStore()
     
+    def draft_order(self, customer_name: Optional[str] = None, customer_email: Optional[str] = None,
+                   customer_phone: Optional[str] = None, shipping_address: Optional[str] = None,
+                   product_ids: Optional[List[int]] = None, quantities: Optional[List[int]] = None) -> Dict[str, Any]:
+        """Draft an order and validate all required information.
+        
+        Args:
+            customer_name: Customer name (optional)
+            customer_email: Customer email (optional)
+            customer_phone: Customer phone (optional)
+            shipping_address: Shipping address (optional)
+            product_ids: List of product IDs (optional)
+            quantities: List of quantities (optional)
+            
+        Returns:
+            Result dictionary with validation status and missing fields
+        """
+        try:
+            # Track missing and provided fields
+            missing_fields = []
+            provided_fields = {}
+            
+            # Check customer name
+            if not customer_name:
+                missing_fields.append("customer_name")
+            else:
+                provided_fields["customer_name"] = customer_name
+            
+            # Check customer email
+            if not customer_email:
+                missing_fields.append("customer_email")
+            else:
+                provided_fields["customer_email"] = customer_email
+            
+            # Check customer phone
+            if not customer_phone:
+                missing_fields.append("customer_phone")
+            else:
+                provided_fields["customer_phone"] = customer_phone
+            
+            # Check shipping address
+            if not shipping_address:
+                missing_fields.append("shipping_address")
+            else:
+                provided_fields["shipping_address"] = shipping_address
+            
+            # Check product IDs and quantities
+            if not product_ids or len(product_ids) == 0:
+                missing_fields.append("product_ids")
+            elif not quantities or len(quantities) == 0:
+                missing_fields.append("quantities")
+            elif len(product_ids) != len(quantities):
+                return {
+                    "success": False,
+                    "ready_to_order": False,
+                    "error": "Number of products and quantities must match",
+                    "missing_fields": missing_fields,
+                    "provided_fields": provided_fields
+                }
+            else:
+                # Validate products exist and check inventory
+                products_info = []
+                total_cost = 0
+                total_weight = 0
+                
+                for product_id, quantity in zip(product_ids, quantities):
+                    product = self.db.get_product_by_id(product_id)
+                    if not product:
+                        return {
+                            "success": False,
+                            "ready_to_order": False,
+                            "error": f"Product ID {product_id} not found",
+                            "missing_fields": missing_fields,
+                            "provided_fields": provided_fields
+                        }
+                    
+                    # Check inventory
+                    if product['stock_quantity'] < quantity:
+                        return {
+                            "success": False,
+                            "ready_to_order": False,
+                            "error": f"Insufficient stock for {product['name']}. Requested: {quantity}, Available: {product['stock_quantity']}",
+                            "missing_fields": missing_fields,
+                            "provided_fields": provided_fields
+                        }
+                    
+                    item_total = product['price'] * quantity
+                    item_weight = product.get('weight', 0) * quantity  # Default to 0 if weight not available
+                    total_cost += item_total
+                    total_weight += item_weight
+                    
+                    products_info.append({
+                        "product_id": product_id,
+                        "name": product['name'],
+                        "quantity": quantity,
+                        "unit_price": product['price'],
+                        "item_total": item_total,
+                        "stock_available": product['stock_quantity']
+                    })
+                
+                provided_fields["products"] = products_info
+                provided_fields["total_cost"] = total_cost
+                provided_fields["total_weight"] = total_weight
+            
+            # Determine if order is ready
+            ready_to_order = len(missing_fields) == 0
+            
+            if ready_to_order:
+                return {
+                    "success": True,
+                    "ready_to_order": True,
+                    "message": "All required information collected. Ready to create order.",
+                    "order_summary": provided_fields,
+                    "next_step": "Call create_order with the complete information to finalize the order."
+                }
+            else:
+                # Build helpful message about what's missing
+                field_names = {
+                    "customer_name": "customer's full name",
+                    "customer_email": "customer's email address",
+                    "customer_phone": "customer's phone number",
+                    "shipping_address": "shipping address",
+                    "product_ids": "products to order",
+                    "quantities": "quantities for products"
+                }
+                
+                missing_descriptions = [field_names.get(f, f) for f in missing_fields]
+                
+                return {
+                    "success": True,
+                    "ready_to_order": False,
+                    "message": f"Missing required information: {', '.join(missing_descriptions)}",
+                    "missing_fields": missing_fields,
+                    "provided_fields": provided_fields,
+                    "next_step": "Ask the customer for the missing information."
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "ready_to_order": False,
+                "error": str(e)
+            }
+    
     def create_order(self, customer_name: str, customer_email: str, customer_phone: str,
                     shipping_address: str, product_ids: List[int], quantities: List[int]) -> Dict[str, Any]:
         """Create a new order.
@@ -163,34 +306,39 @@ class ToolImplementations:
                 "error": str(e)
             }
     
-    def estimate_shipping(self, destination_zip: str, weight: float, 
-                         service_level: str) -> Dict[str, Any]:
-        """Estimate shipping cost.
+    def estimate_shipping(self, destination_zip: str, weight: float) -> Dict[str, Any]:
+        """Estimate shipping cost for all available service levels.
         
         Args:
             destination_zip: Destination ZIP code
             weight: Package weight in pounds
-            service_level: Service level (standard, express, overnight)
+            service_level: Service level (parameter accepted but all levels returned)
             
         Returns:
-            Result dictionary with shipping estimate
+            Result dictionary with all shipping estimates
         """
         try:
-            estimate = self.db.estimate_shipping(weight_lbs=weight, service_level=service_level)
+            estimates = self.db.estimate_shipping(destination_zip=destination_zip, weight_lbs=weight)
             
-            if not estimate:
+            if not estimates:
                 return {
                     "success": False,
-                    "error": f"No shipping rates found for service level: {service_level}"
+                    "error": f"No shipping rates found for ZIP code: {destination_zip}"
                 }
+            
+            # Format message showing all options
+            options_text = "\n".join([
+                f"  - {est['carrier']} {est['service_type']}: ${est['estimated_cost']} ({est['estimated_days']} days)"
+                for est in estimates
+            ])
             
             return {
                 "success": True,
                 "destination_zip": destination_zip,
                 "weight_lbs": weight,
-                "service_level": service_level,
-                "estimate": estimate,
-                "message": f"Shipping to {destination_zip}: ${estimate['estimated_cost']} ({estimate['estimated_days']} days)"
+                "estimates": estimates,
+                "count": len(estimates),
+                "message": f"Shipping options to {destination_zip} for {weight} lbs:\n{options_text}"
             }
         except Exception as e:
             return {
@@ -330,6 +478,7 @@ class ToolImplementations:
         
         # Map tool names to methods
         tool_map = {
+            "draft_order": self.draft_order,
             "create_order": self.create_order,
             "order_status": self.order_status,
             "product_catalog": self.product_catalog,
