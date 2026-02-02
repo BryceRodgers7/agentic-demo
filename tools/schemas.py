@@ -190,7 +190,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "initiate_return",
-            "description": "Initiate a return request for a completed order",
+            "description": "Initiate a return request for a completed order. IMPORTANT: Use product_ids and quantities to return SPECIFIC items only. If these are not provided, the ENTIRE order will be returned.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -201,6 +201,16 @@ TOOL_SCHEMAS = [
                     "return_reason": {
                         "type": "string",
                         "description": "Reason for the return (e.g., defective, wrong item, changed mind)"
+                    },
+                    "product_ids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "REQUIRED for partial returns: List of specific product IDs to return. MUST be provided when customer wants to return only some items from a multi-item order. Example: [1, 3] to return products 1 and 3."
+                    },
+                    "quantities": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "REQUIRED for partial returns: Quantities for each product being returned (must match length of product_ids). Example: [2, 1] means return 2 units of the first product and 1 unit of the second."
                     }
                 },
                 "required": ["order_id", "return_reason"]

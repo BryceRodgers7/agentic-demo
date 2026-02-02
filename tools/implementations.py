@@ -381,12 +381,16 @@ class ToolImplementations:
                 "error": str(e)
             }
     
-    def initiate_return(self, order_id: int, return_reason: str) -> Dict[str, Any]:
+    def initiate_return(self, order_id: int, return_reason: str, 
+                       product_ids: Optional[List[int]] = None, 
+                       quantities: Optional[List[int]] = None) -> Dict[str, Any]:
         """Initiate a return.
         
         Args:
             order_id: Order ID
             return_reason: Reason for return
+            product_ids: List of product IDs to return (optional)
+            quantities: List of quantities to return (optional)
             
         Returns:
             Result dictionary with return details
@@ -400,22 +404,74 @@ class ToolImplementations:
                     "error": f"Order #{order_id} not found"
                 }
             
+            # Validate product_ids and quantities if provided
+            if product_ids and quantities:
+                if len(product_ids) != len(quantities):
+                    return {
+                        "success": False,
+                        "error": "Number of products and quantities must match"
+                    }
+                
+                # Verify products exist in the order
+                order_product_map = {item['product_id']: item for item in order.get('items', [])}
+                for product_id, quantity in zip(product_ids, quantities):
+                    if product_id not in order_product_map:
+                        return {
+                            "success": False,
+                            "error": f"Product ID {product_id} was not in order #{order_id}"
+                        }
+                    
+                    order_item = order_product_map[product_id]
+                    if quantity > order_item['quantity']:
+                        return {
+                            "success": False,
+                            "error": f"Cannot return {quantity} units of {order_item['product_name']}. Order only contained {order_item['quantity']} units."
+                        }
+            elif product_ids or quantities:
+                # One provided but not the other
+                return {
+                    "success": False,
+                    "error": "Both product_ids and quantities must be provided together, or neither"
+                }
+            
             # Create return
             return_id = self.db.create_return(
                 order_id=order_id,
-                return_reason=return_reason
+                return_reason=return_reason,
+                product_ids=product_ids,
+                quantities=quantities
             )
             
             return_info = self.db.get_return(return_id)
+            
+            # Build a descriptive message
+            if product_ids:
+                # Get product names for the message
+                order_product_map = {item['product_id']: item for item in order.get('items', [])}
+                returned_items = []
+                for pid, qty in zip(product_ids, quantities):
+                    if pid in order_product_map:
+                        product_name = order_product_map[pid]['product_name']
+                        returned_items.append(f"{qty}x {product_name}")
+                items_text = ", ".join(returned_items)
+                message = f"Return request #{return_id} created for {items_text} from order #{order_id}. Refund amount: ${return_info['refund_total_amount']}"
+            else:
+                # For full order return, return all items
+                items_text = ", ".join([f"{item['product_name']} x {item['quantity']}" for item in order.get('items', [])])
+                message = f"Return request #{return_id} created for entire order #{order_id}. Refund amount: ${return_info['refund_total_amount']}"
+            
+            logger.info(f"initiate_return: {message}")
             
             return {
                 "success": True,
                 "return_id": return_id,
                 "order_id": order_id,
                 "return_info": return_info,
-                "message": f"Return request #{return_id} created for order #{order_id}"
+                "returned_items": product_ids if product_ids else "all items",
+                "message": message
             }
         except Exception as e:
+            logger.error(f"initiate_return error: {str(e)}", exc_info=True)
             return {
                 "success": False,
                 "error": str(e)

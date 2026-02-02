@@ -29,20 +29,14 @@ class DatabaseManager:
         self._initialize_database()
     
     def _initialize_database(self):
-        """Initialize database with schema."""
-        schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
-        
+        """Test database connectivity."""
         try:
-            with open(schema_path, 'r') as f:
-                schema_sql = f.read()
-            
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute(schema_sql)
-                conn.commit()
-            logger.info("Database schema initialized successfully")
+                    cursor.execute("SELECT 1")
+            logger.info("Database connection successful")
         except Exception as e:
-            logger.error(f"Error initializing database schema: {str(e)}", exc_info=True)
+            logger.error(f"Error connecting to database: {str(e)}", exc_info=True)
             raise
     
     @staticmethod
@@ -50,7 +44,7 @@ class DatabaseManager:
         """Convert non-JSON-serializable types for JSON serialization.
         
         Converts:
-        - Decimal objects to float (for price, refund_amount, etc.)
+        - Decimal objects to float (for price, total_amount, refund_total_amount, etc.)
         - datetime objects to ISO format strings (for created_at, updated_at, etc.)
         
         Args:
@@ -490,12 +484,16 @@ class DatabaseManager:
             raise
     
     # Return operations
-    def create_return(self, order_id: int, return_reason: str) -> int:
+    def create_return(self, order_id: int, return_reason: str, 
+                     product_ids: Optional[List[int]] = None,
+                     quantities: Optional[List[int]] = None) -> int:
         """Create a return request.
         
         Args:
             order_id: Order ID
             return_reason: Reason for return
+            product_ids: List of product IDs to return (optional - if None, returns entire order)
+            quantities: List of quantities to return (optional - must match product_ids length)
             
         Returns:
             New return ID
@@ -503,72 +501,146 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                    # Get order total for refund calculation and first product
+                    # If no specific products provided, return entire order
+                    if not product_ids:
+                        # Get all items in the order
+                        cursor.execute(
+                            """SELECT oi.product_id, oi.quantity, oi.price_at_purchase
+                               FROM agent_order_items oi
+                               WHERE oi.order_id = %s""",
+                            (order_id,)
+                        )
+                        items = cursor.fetchall()
+                        
+                        if not items:
+                            logger.error(f"create_return: No items found for order {order_id}")
+                            raise ValueError(f"No items found for order {order_id}")
+                        
+                        product_ids = [item['product_id'] for item in items]
+                        quantities = [item['quantity'] for item in items]
+                        logger.info(f"create_return: No specific products provided, returning all {len(items)} items from order {order_id}")
+                    
+                    # Calculate total refund amount based on specific items
+                    refund_total_amount = 0
+                    return_items_data = []
+                    
+                    for product_id, quantity in zip(product_ids, quantities):
+                        # Get the price at purchase for this product
+                        cursor.execute(
+                            """SELECT oi.price_at_purchase, oi.quantity as ordered_quantity
+                               FROM agent_order_items oi
+                               WHERE oi.order_id = %s AND oi.product_id = %s""",
+                            (order_id, product_id)
+                        )
+                        item = cursor.fetchone()
+                        
+                        if not item:
+                            logger.error(f"create_return: Product {product_id} not found in order {order_id}")
+                            raise ValueError(f"Product {product_id} not found in order {order_id}")
+                        
+                        # Calculate refund for this item
+                        item_refund = float(item['price_at_purchase']) * quantity
+                        refund_total_amount += item_refund
+                        
+                        # Store data for return items insert
+                        return_items_data.append({
+                            'product_id': product_id,
+                            'quantity': quantity,
+                            'price_at_purchase': item['price_at_purchase']
+                        })
+                        
+                        logger.info(f"create_return: Planning return item for product_id={product_id}, quantity={quantity}, refund=${item_refund}")
+                    
+                    # Create the return order (single record)
                     cursor.execute(
-                        """SELECT o.total_amount, oi.product_id 
-                           FROM agent_orders o 
-                           LEFT JOIN agent_order_items oi ON o.id = oi.order_id 
-                           WHERE o.id = %s 
-                           LIMIT 1""",
-                        (order_id,)
-                    )
-                    row = cursor.fetchone()
-                    
-                    if not row:
-                        logger.error(f"create_return: Order {order_id} not found")
-                        raise ValueError(f"Order {order_id} not found")
-                    
-                    refund_amount = row['total_amount']
-                    product_id = row['product_id'] or 1  # Default to 1 if no items
-                    logger.info(f"create_return: Retrieved order_id={order_id}, refund_amount=${refund_amount}")
-                    
-                    cursor.execute(
-                        """INSERT INTO agent_return_orders (order_id, return_reason, status, refund_amount, product_id)
-                           VALUES (%s, %s, 'pending', %s, %s) RETURNING id""",
-                        (order_id, return_reason, refund_amount, product_id)
+                        """INSERT INTO agent_return_orders (order_id, return_reason, status, refund_total_amount)
+                           VALUES (%s, %s, 'pending', %s) RETURNING id""",
+                        (order_id, return_reason, refund_total_amount)
                     )
                     return_id = cursor.fetchone()['id']
+                    logger.info(f"create_return: Created return_id={return_id} for order_id={order_id}, total_refund=${refund_total_amount}")
+                    
+                    # Create return items (one for each product being returned)
+                    for item_data in return_items_data:
+                        cursor.execute(
+                            """INSERT INTO agent_return_items (return_id, product_id, quantity, price_at_purchase)
+                               VALUES (%s, %s, %s, %s)""",
+                            (return_id, item_data['product_id'], item_data['quantity'], item_data['price_at_purchase'])
+                        )
+                        logger.info(f"create_return: Created return item for return_id={return_id}, product_id={item_data['product_id']}, quantity={item_data['quantity']}")
+                    
                     conn.commit()
-                    logger.info(f"create_return: Created return_id={return_id} for order_id={order_id}, refund_amount=${refund_amount}")
+                    logger.info(f"create_return: Successfully created return_id={return_id} with {len(return_items_data)} item(s), total_refund=${refund_total_amount}")
+                    
                     return return_id
         except Exception as e:
             logger.error(f"Error in create_return for order_id={order_id}: {str(e)}", exc_info=True)
             raise
     
     def get_return(self, return_id: int) -> Optional[Dict[str, Any]]:
-        """Get return details.
+        """Get return details with items.
         
         Args:
             return_id: Return ID
             
         Returns:
-            Return dictionary or None
+            Return dictionary with items or None
         """
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                    # Get return order
                     cursor.execute("SELECT * FROM agent_return_orders WHERE id = %s", (return_id,))
                     row = cursor.fetchone()
-                    result = self._prepare_for_json(dict(row)) if row else None
-                    logger.info(f"get_return: Query for return_id={return_id} returned: {'return found' if result else 'None'}")
-                    return result
+                    
+                    if not row:
+                        logger.info(f"get_return: No return found for return_id={return_id}")
+                        return None
+                    
+                    return_order = dict(row)
+                    logger.info(f"get_return: Retrieved return_id={return_id}, status={return_order.get('status')}")
+                    
+                    # Get return items
+                    cursor.execute(
+                        """SELECT ri.*, p.name as product_name 
+                           FROM agent_return_items ri
+                           JOIN agent_products p ON ri.product_id = p.id
+                           WHERE ri.return_id = %s""",
+                        (return_id,)
+                    )
+                    return_order['items'] = [self._prepare_for_json(dict(item_row)) for item_row in cursor.fetchall()]
+                    logger.info(f"get_return: Retrieved {len(return_order['items'])} return items for return_id={return_id}")
+                    
+                    return self._prepare_for_json(return_order)
         except Exception as e:
             logger.error(f"Error in get_return for return_id={return_id}: {str(e)}", exc_info=True)
             raise
     
     def get_all_returns(self) -> List[Dict[str, Any]]:
-        """Get all returns.
+        """Get all returns with their items.
         
         Returns:
-            List of return dictionaries
+            List of return dictionaries with items
         """
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
                     cursor.execute("SELECT * FROM agent_return_orders ORDER BY created_at DESC")
-                    results = [self._prepare_for_json(dict(row)) for row in cursor.fetchall()]
-                    logger.info(f"get_all_returns query returned {len(results)} returns")
-                    return results
+                    returns = [self._prepare_for_json(dict(row)) for row in cursor.fetchall()]
+                    
+                    # Get items for each return
+                    for return_order in returns:
+                        cursor.execute(
+                            """SELECT ri.*, p.name as product_name 
+                               FROM agent_return_items ri
+                               JOIN agent_products p ON ri.product_id = p.id
+                               WHERE ri.return_id = %s""",
+                            (return_order['id'],)
+                        )
+                        return_order['items'] = [self._prepare_for_json(dict(item_row)) for item_row in cursor.fetchall()]
+                    
+                    logger.info(f"get_all_returns query returned {len(returns)} returns")
+                    return returns
         except Exception as e:
             logger.error(f"Error in get_all_returns: {str(e)}", exc_info=True)
             raise

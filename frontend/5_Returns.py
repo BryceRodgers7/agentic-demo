@@ -66,7 +66,7 @@ try:
             pending_returns = len(df[df['status'] == 'pending']) if 'status' in df.columns else 0
             st.metric("Pending Returns", pending_returns)
         with col3:
-            total_refunds = df['refund_amount'].sum() if 'refund_amount' in df.columns else 0
+            total_refunds = df['refund_total_amount'].sum() if 'refund_total_amount' in df.columns else 0
             st.metric("Total Refunds", f"${total_refunds:.2f}")
         with col4:
             processed_returns = len(df[df['status'] == 'processed']) if 'status' in df.columns else 0
@@ -74,9 +74,10 @@ try:
         
         st.divider()
         
-        # Display returns table
+        # Display returns table (exclude items column from main view)
+        display_df = df.drop(columns=['items']) if 'items' in df.columns else df
         st.dataframe(
-            df,
+            display_df,
             use_container_width=True,
             hide_index=True,
             column_config={
@@ -84,7 +85,7 @@ try:
                 "order_id": st.column_config.NumberColumn("Order ID", format="%d"),
                 "return_reason": st.column_config.TextColumn("Reason", width="large"),
                 "status": st.column_config.TextColumn("Status", width="small"),
-                "refund_amount": st.column_config.NumberColumn("Refund Amount", format="$%.2f"),
+                "refund_total_amount": st.column_config.NumberColumn("Refund Amount", format="$%.2f"),
                 "created_at": st.column_config.DatetimeColumn("Created", format="YYYY-MM-DD HH:mm"),
                 "updated_at": st.column_config.DatetimeColumn("Updated", format="YYYY-MM-DD HH:mm"),
                 "processed_at": st.column_config.DatetimeColumn("Processed", format="YYYY-MM-DD HH:mm")
@@ -105,7 +106,7 @@ try:
                     st.write("**Return ID:**", return_data['id'])
                     st.write("**Order ID:**", return_data['order_id'])
                     st.write("**Status:**", return_data['status'].upper())
-                    st.write("**Refund Amount:**", f"${return_data['refund_amount']:.2f}" if return_data['refund_amount'] else "N/A")
+                    st.write("**Refund Amount:**", f"${return_data['refund_total_amount']:.2f}" if return_data['refund_total_amount'] else "N/A")
                 with col2:
                     st.write("**Created:**", return_data['created_at'])
                     st.write("**Updated:**", return_data['updated_at'])
@@ -113,6 +114,22 @@ try:
                 
                 st.write("**Return Reason:**")
                 st.info(return_data['return_reason'])
+                
+                # Display return items
+                if 'items' in return_data and return_data['items']:
+                    st.write("**Items Being Returned:**")
+                    items_df = pd.DataFrame(return_data['items'])
+                    st.dataframe(
+                        items_df,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "product_id": st.column_config.NumberColumn("Product ID", format="%d"),
+                            "product_name": st.column_config.TextColumn("Product Name"),
+                            "quantity": st.column_config.NumberColumn("Quantity", format="%d"),
+                            "price_at_purchase": st.column_config.NumberColumn("Price at Purchase", format="$%.2f")
+                        }
+                    )
                 
                 # Try to get order details
                 try:
