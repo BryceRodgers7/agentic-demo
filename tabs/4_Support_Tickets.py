@@ -76,13 +76,14 @@ try:
         
         # Display tickets table
         st.dataframe(
-            df,
+            df.sort_values('ticket_id', ascending=True),
             use_container_width=True,
             hide_index=True,
             column_config={
-                "id": st.column_config.NumberColumn("Ticket ID", format="%d"),
+                "ticket_id": st.column_config.NumberColumn("Ticket ID", format="%d"),
                 "customer_name": st.column_config.TextColumn("Customer", width="medium"),
                 "customer_email": st.column_config.TextColumn("Email", width="medium"),
+                "product_id": st.column_config.NumberColumn("Product ID", format="%d"),
                 "issue_description": st.column_config.TextColumn("Issue", width="large"),
                 "priority": st.column_config.TextColumn("Priority", width="small"),
                 "status": st.column_config.TextColumn("Status", width="small"),
@@ -96,38 +97,39 @@ try:
         # Show detailed view for selected ticket
         st.divider()
         st.subheader("Ticket Details")
-        ticket_ids = df['id'].tolist()
-        selected_id = st.selectbox("Select a ticket to view details", ticket_ids)
-        
-        if selected_id:
-            ticket = next((t for t in tickets if t['id'] == selected_id), None)
-            if ticket:
-                # Priority badge color
-                priority_colors = {
-                    'low': '🟢',
-                    'medium': '🟡',
-                    'high': '🟠',
-                    'urgent': '🔴'
-                }
-                priority_icon = priority_colors.get(ticket['priority'], '⚪')
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("**Ticket ID:**", ticket['id'])
-                    st.write("**Customer:**", ticket['customer_name'])
-                    st.write("**Email:**", ticket['customer_email'])
-                    st.write(f"**Priority:** {priority_icon} {ticket['priority'].upper()}")
-                with col2:
-                    st.write("**Status:**", ticket['status'].upper())
-                    st.write("**Assigned To:**", ticket['assigned_to'] or "Unassigned")
-                    st.write("**Created:**", ticket['created_at'])
-                    st.write("**Updated:**", ticket['updated_at'])
-                
-                st.write("**Issue Description:**")
-                st.info(ticket['issue_description'])
-                
-                if ticket['resolved_at']:
-                    st.success(f"✅ Resolved on {ticket['resolved_at']}")
+        ticket_ids = df['ticket_id'].tolist() if 'ticket_id' in df.columns else []
+        if ticket_ids:
+            selected_id = st.selectbox("Select a ticket to view details", ticket_ids)
+            
+            if selected_id:
+                ticket = next((t for t in tickets if t['ticket_id'] == selected_id), None)
+                if ticket:
+                    # Priority badge color
+                    priority_colors = {
+                        'low': '🟢',
+                        'medium': '🟡',
+                        'high': '🟠',
+                        'urgent': '🔴'
+                    }
+                    priority_icon = priority_colors.get(ticket.get('priority', 'medium'), '⚪')
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write("**Ticket ID:**", ticket['ticket_id'])
+                        st.write("**Customer:**", ticket['customer_name'])
+                        st.write("**Email:**", ticket['customer_email'])
+                        st.write(f"**Priority:** {priority_icon} {ticket.get('priority', 'medium').upper()}")
+                    with col2:
+                        st.write("**Status:**", ticket['status'].upper())
+                        st.write("**Product ID:**", ticket.get('product_id', 'N/A'))
+                        st.write("**Assigned To:**", ticket.get('assigned_to') or 'Unassigned')
+                        st.write("**Created:**", ticket['created_at'])
+                    
+                    st.write("**Issue Description:**")
+                    st.info(ticket.get('issue_description', 'N/A'))
+                    
+                    if ticket.get('resolved_at'):
+                        st.success(f"✅ Resolved on {ticket['resolved_at']}")
     else:
         st.info("No support tickets found")
         

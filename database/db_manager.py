@@ -251,8 +251,14 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                    # Get order
-                    cursor.execute("SELECT * FROM agent_orders WHERE id = %s", (order_id,))
+                    # Get order with actual columns
+                    cursor.execute(
+                        """SELECT id as order_id, customer_name, customer_email, customer_phone,
+                                  shipping_address, zip_code, city, state,
+                                  status, total_amount, created_at, updated_at 
+                           FROM agent_orders WHERE id = %s""", 
+                        (order_id,)
+                    )
                     order_row = cursor.fetchone()
                     
                     if not order_row:
@@ -262,11 +268,11 @@ class DatabaseManager:
                     order = dict(order_row)
                     logger.info(f"get_order: Retrieved order_id={order_id}, status={order.get('status')}")
                     
-                    # Get order items
+                    # Get order items with aliased columns
                     cursor.execute(
-                        """SELECT oi.*, p.name as product_name 
+                        """SELECT oi.id as order_item_id, oi.order_id, oi.product_id, 
+                                  oi.quantity, oi.price_at_purchase 
                            FROM agent_order_items oi 
-                           JOIN agent_products p ON oi.product_id = p.id 
                            WHERE oi.order_id = %s""",
                         (order_id,)
                     )
@@ -278,22 +284,45 @@ class DatabaseManager:
             logger.error(f"Error in get_order for order_id={order_id}: {str(e)}", exc_info=True)
             raise
     
-    def get_all_orders(self) -> List[Dict[str, Any]]:
-        """Get all orders.
+    def get_orders(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get orders with optional status filter.
         
+        Args:
+            status: Filter by status (optional)
+            
         Returns:
             List of order dictionaries
         """
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                    cursor.execute("SELECT * FROM agent_orders ORDER BY created_at DESC")
+                    query = """SELECT id as order_id, customer_name, customer_email, customer_phone,
+                                      shipping_address, zip_code, city, state,
+                                      status, total_amount, created_at, updated_at 
+                               FROM agent_orders WHERE 1=1"""
+                    params = []
+                    
+                    if status:
+                        query += " AND status = %s"
+                        params.append(status)
+                    
+                    query += " ORDER BY created_at DESC"
+                    
+                    cursor.execute(query, params)
                     results = [self._prepare_for_json(dict(row)) for row in cursor.fetchall()]
-                    logger.info(f"get_all_orders query returned {len(results)} orders")
+                    logger.info(f"get_orders query returned {len(results)} orders (status={status})")
                     return results
         except Exception as e:
-            logger.error(f"Error in get_all_orders: {str(e)}", exc_info=True)
+            logger.error(f"Error in get_orders: {str(e)}", exc_info=True)
             raise
+    
+    def get_all_orders(self) -> List[Dict[str, Any]]:
+        """Get all orders.
+        
+        Returns:
+            List of order dictionaries
+        """
+        return self.get_orders(status=None)
     
     def update_order_status(self, order_id: int, status: str):
         """Update order status.
@@ -317,11 +346,12 @@ class DatabaseManager:
             raise
     
     # Shipping operations
-    def get_shipping_rates(self, service_type: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_shipping_rates(self, carrier: Optional[str] = None, service_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get shipping rates.
         
         Args:
-            service_type: Filter by service type
+            carrier: Filter by carrier (optional)
+            service_type: Filter by service type (optional)
             
         Returns:
             List of shipping rate dictionaries
@@ -329,19 +359,29 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                    if service_type:
-                        cursor.execute(
-                            "SELECT * FROM agent_shipping_rates WHERE service_type = %s ORDER BY base_rate",
-                            (service_type,)
-                        )
-                    else:
-                        cursor.execute("SELECT * FROM agent_shipping_rates ORDER BY base_rate")
+                    query = """SELECT id, carrier, service_type, 
+                                      base_rate as rate, 
+                                      estimated_days as delivery_days, 
+                                      per_lb_rate, zip_code, created_at 
+                               FROM agent_shipping_rates WHERE 1=1"""
+                    params = []
                     
+                    if carrier:
+                        query += " AND carrier = %s"
+                        params.append(carrier)
+                    
+                    if service_type:
+                        query += " AND service_type = %s"
+                        params.append(service_type)
+                    
+                    query += " ORDER BY base_rate"
+                    
+                    cursor.execute(query, params)
                     results = [self._prepare_for_json(dict(row)) for row in cursor.fetchall()]
-                    logger.info(f"get_shipping_rates query returned {len(results)} rates (service_type={service_type})")
+                    logger.info(f"get_shipping_rates query returned {len(results)} rates (carrier={carrier}, service_type={service_type})")
                     return results
         except Exception as e:
-            logger.error(f"Error in get_shipping_rates for service_type={service_type}: {str(e)}", exc_info=True)
+            logger.error(f"Error in get_shipping_rates for carrier={carrier}, service_type={service_type}: {str(e)}", exc_info=True)
             raise
     
     def estimate_shipping(self, destination_zip: str, weight_lbs: float) -> Optional[List[Dict[str, Any]]]:
@@ -350,7 +390,6 @@ class DatabaseManager:
         Args:
             destination_zip: Destination ZIP code
             weight_lbs: Package weight in pounds
-            service_level: Service level (deprecated - all levels are returned)
             
         Returns:
             List of shipping estimate dictionaries or None
@@ -359,7 +398,10 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
                     cursor.execute(
-                        "SELECT * FROM agent_shipping_rates WHERE zip_code = %s ORDER BY estimated_days, base_rate",
+                        """SELECT carrier, service_type, base_rate, per_lb_rate, estimated_days 
+                           FROM agent_shipping_rates 
+                           WHERE zip_code = %s 
+                           ORDER BY estimated_days, base_rate""",
                         (destination_zip,)
                     )
                     rows = cursor.fetchall()
@@ -376,8 +418,8 @@ class DatabaseManager:
                         estimates.append({
                             'carrier': rate['carrier'],
                             'service_type': rate['service_type'],
-                            'estimated_cost': round(total_cost, 2),
-                            'estimated_days': rate['estimated_days']
+                            'rate': round(total_cost, 2),
+                            'delivery_days': rate['estimated_days']
                         })
                     
                     logger.info(f"estimate_shipping: Calculated {len(estimates)} estimates for zip_code={destination_zip}, weight_lbs={weight_lbs}")
@@ -428,7 +470,13 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                    cursor.execute("SELECT * FROM agent_support_tickets WHERE id = %s", (ticket_id,))
+                    cursor.execute(
+                        """SELECT id as ticket_id, customer_name, customer_email, product_id,
+                                  issue_description, priority, status, assigned_to,
+                                  created_at, updated_at, resolved_at 
+                           FROM agent_support_tickets WHERE id = %s""", 
+                        (ticket_id,)
+                    )
                     row = cursor.fetchone()
                     result = self._prepare_for_json(dict(row)) if row else None
                     logger.info(f"get_support_ticket: Query for ticket_id={ticket_id} returned: {'ticket found' if result else 'None'}")
@@ -437,22 +485,45 @@ class DatabaseManager:
             logger.error(f"Error in get_support_ticket for ticket_id={ticket_id}: {str(e)}", exc_info=True)
             raise
     
-    def get_all_support_tickets(self) -> List[Dict[str, Any]]:
-        """Get all support tickets.
+    def get_support_tickets(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get support tickets with optional status filter.
         
+        Args:
+            status: Filter by status (optional)
+            
         Returns:
             List of ticket dictionaries
         """
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                    cursor.execute("SELECT * FROM agent_support_tickets ORDER BY created_at DESC")
+                    query = """SELECT id as ticket_id, customer_name, customer_email, product_id,
+                                      issue_description, priority, status, assigned_to,
+                                      created_at, updated_at, resolved_at 
+                               FROM agent_support_tickets WHERE 1=1"""
+                    params = []
+                    
+                    if status:
+                        query += " AND status = %s"
+                        params.append(status)
+                    
+                    query += " ORDER BY created_at DESC"
+                    
+                    cursor.execute(query, params)
                     results = [self._prepare_for_json(dict(row)) for row in cursor.fetchall()]
-                    logger.info(f"get_all_support_tickets query returned {len(results)} tickets")
+                    logger.info(f"get_support_tickets query returned {len(results)} tickets (status={status})")
                     return results
         except Exception as e:
-            logger.error(f"Error in get_all_support_tickets: {str(e)}", exc_info=True)
+            logger.error(f"Error in get_support_tickets: {str(e)}", exc_info=True)
             raise
+    
+    def get_all_support_tickets(self) -> List[Dict[str, Any]]:
+        """Get all support tickets.
+        
+        Returns:
+            List of ticket dictionaries
+        """
+        return self.get_support_tickets(status=None)
     
     def update_ticket_status(self, ticket_id: int, status: str):
         """Update ticket status.
@@ -589,8 +660,14 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                    # Get return order
-                    cursor.execute("SELECT * FROM agent_return_orders WHERE id = %s", (return_id,))
+                    # Get return order with actual columns
+                    cursor.execute(
+                        """SELECT id as return_id, order_id,
+                                  return_reason as reason, status, refund_total_amount,
+                                  created_at, updated_at, processed_at
+                           FROM agent_return_orders WHERE id = %s""", 
+                        (return_id,)
+                    )
                     row = cursor.fetchone()
                     
                     if not row:
@@ -600,11 +677,12 @@ class DatabaseManager:
                     return_order = dict(row)
                     logger.info(f"get_return: Retrieved return_id={return_id}, status={return_order.get('status')}")
                     
-                    # Get return items
+                    # Get return items with aliased columns
                     cursor.execute(
-                        """SELECT ri.*, p.name as product_name 
+                        """SELECT ri.id as return_item_id, ri.return_id, ri.product_id,
+                                  ri.quantity, ri.price_at_purchase as refund_amount,
+                                  'Item return' as reason
                            FROM agent_return_items ri
-                           JOIN agent_products p ON ri.product_id = p.id
                            WHERE ri.return_id = %s""",
                         (return_id,)
                     )
@@ -616,34 +694,58 @@ class DatabaseManager:
             logger.error(f"Error in get_return for return_id={return_id}: {str(e)}", exc_info=True)
             raise
     
-    def get_all_returns(self) -> List[Dict[str, Any]]:
-        """Get all returns with their items.
+    def get_returns(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get returns with optional status filter.
         
+        Args:
+            status: Filter by status (optional)
+            
         Returns:
             List of return dictionaries with items
         """
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                    cursor.execute("SELECT * FROM agent_return_orders ORDER BY created_at DESC")
+                    query = """SELECT id as return_id, order_id,
+                                      return_reason as reason, status, refund_total_amount,
+                                      created_at, updated_at, processed_at
+                               FROM agent_return_orders WHERE 1=1"""
+                    params = []
+                    
+                    if status:
+                        query += " AND status = %s"
+                        params.append(status)
+                    
+                    query += " ORDER BY created_at DESC"
+                    
+                    cursor.execute(query, params)
                     returns = [self._prepare_for_json(dict(row)) for row in cursor.fetchall()]
                     
                     # Get items for each return
                     for return_order in returns:
                         cursor.execute(
-                            """SELECT ri.*, p.name as product_name 
+                            """SELECT ri.id as return_item_id, ri.return_id, ri.product_id,
+                                      ri.quantity, ri.price_at_purchase as refund_amount,
+                                      'Item return' as reason
                                FROM agent_return_items ri
-                               JOIN agent_products p ON ri.product_id = p.id
                                WHERE ri.return_id = %s""",
-                            (return_order['id'],)
+                            (return_order['return_id'],)
                         )
                         return_order['items'] = [self._prepare_for_json(dict(item_row)) for item_row in cursor.fetchall()]
                     
-                    logger.info(f"get_all_returns query returned {len(returns)} returns")
+                    logger.info(f"get_returns query returned {len(returns)} returns (status={status})")
                     return returns
         except Exception as e:
-            logger.error(f"Error in get_all_returns: {str(e)}", exc_info=True)
+            logger.error(f"Error in get_returns: {str(e)}", exc_info=True)
             raise
+    
+    def get_all_returns(self) -> List[Dict[str, Any]]:
+        """Get all returns with their items.
+        
+        Returns:
+            List of return dictionaries with items
+        """
+        return self.get_returns(status=None)
     
     def update_return_status(self, return_id: int, status: str):
         """Update return status.

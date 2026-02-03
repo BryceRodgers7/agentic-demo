@@ -1,5 +1,6 @@
 """Streamlit main chat interface for customer support chatbot."""
 import streamlit as st
+import streamlit.components.v1 as components
 import os
 import logging
 from datetime import datetime
@@ -43,6 +44,10 @@ st.markdown("""
         border-radius: 3px;
         font-size: 0.85em;
     }
+    /* Hide page navigation */
+    [data-testid="stSidebarNav"] {
+        display: none;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -69,6 +74,25 @@ def render_sidebar():
     """Render the sidebar with tool information and usage tracking."""
     with st.sidebar:
         st.title("🔧 Available Tools")
+        
+        # Button to open all data views in a new browser tab
+        components.html("""
+            <button onclick="window.open('/All_Data_Views', '_blank')" style="
+                width: 100%;
+                padding: 0.5rem 1rem;
+                background-color: #FF4B4B;
+                color: white;
+                border: none;
+                border-radius: 0.5rem;
+                cursor: pointer;
+                font-size: 1rem;
+                font-weight: 500;
+            ">
+                📊 View All Data Tables (New Tab)
+            </button>
+        """, height=50)
+        
+        st.divider()
         
         # Get tool descriptions
         tool_descriptions = get_tool_descriptions()

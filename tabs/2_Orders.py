@@ -25,7 +25,7 @@ col1, col2, col3 = st.columns([2, 2, 1])
 with col1:
     status_filter = st.selectbox(
         "Filter by Status",
-        ["All Statuses", "pending", "processing", "shipped", "delivered", "cancelled"]
+        ["All Statuses", "pending", "confirmed", "shipped", "delivered", "cancelled"]
     )
 
 with col2:
@@ -81,17 +81,22 @@ try:
         
         st.divider()
         
-        # Display orders table
+        # Display orders table (exclude items from main view)
+        display_df = df.drop(columns=['items']) if 'items' in df.columns else df
+        display_df = display_df.sort_values('order_id', ascending=True)
         st.dataframe(
-            df,
+            display_df,
             use_container_width=True,
             hide_index=True,
             column_config={
-                "id": st.column_config.NumberColumn("Order ID", format="%d"),
+                "order_id": st.column_config.NumberColumn("Order ID", format="%d"),
                 "customer_name": st.column_config.TextColumn("Customer", width="medium"),
                 "customer_email": st.column_config.TextColumn("Email", width="medium"),
                 "customer_phone": st.column_config.TextColumn("Phone", width="small"),
                 "shipping_address": st.column_config.TextColumn("Address", width="large"),
+                "city": st.column_config.TextColumn("City", width="small"),
+                "state": st.column_config.TextColumn("State", width="small"),
+                "zip_code": st.column_config.TextColumn("ZIP", width="small"),
                 "status": st.column_config.TextColumn("Status", width="small"),
                 "total_amount": st.column_config.NumberColumn("Total", format="$%.2f"),
                 "created_at": st.column_config.DatetimeColumn("Created", format="YYYY-MM-DD HH:mm"),
@@ -102,40 +107,42 @@ try:
         # Show detailed view for selected order
         st.divider()
         st.subheader("Order Details")
-        order_ids = df['id'].tolist()
-        selected_id = st.selectbox("Select an order to view details", order_ids)
-        
-        if selected_id:
-            order = db.get_order(selected_id)
-            if order:
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("**Order ID:**", order['id'])
-                    st.write("**Customer:**", order['customer_name'])
-                    st.write("**Email:**", order['customer_email'])
-                    st.write("**Phone:**", order['customer_phone'])
-                with col2:
-                    st.write("**Status:**", order['status'])
-                    st.write("**Total Amount:**", f"${order['total_amount']:.2f}")
-                    st.write("**Created:**", order['created_at'])
-                    st.write("**Updated:**", order['updated_at'])
-                
-                st.write("**Shipping Address:**")
-                st.info(order['shipping_address'])
-                
-                if 'items' in order and order['items']:
-                    st.write("**Order Items:**")
-                    items_df = pd.DataFrame(order['items'])
-                    st.dataframe(
-                        items_df,
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            "product_name": "Product",
-                            "quantity": "Quantity",
-                            "price_at_purchase": st.column_config.NumberColumn("Price", format="$%.2f")
-                        }
-                    )
+        order_ids = df['order_id'].tolist() if 'order_id' in df.columns else []
+        if order_ids:
+            selected_id = st.selectbox("Select an order to view details", order_ids)
+            
+            if selected_id:
+                order = db.get_order(selected_id)
+                if order:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write("**Order ID:**", order['order_id'])
+                        st.write("**Customer:**", order['customer_name'])
+                        st.write("**Email:**", order['customer_email'])
+                        st.write("**Phone:**", order['customer_phone'])
+                    with col2:
+                        st.write("**Status:**", order['status'])
+                        st.write("**Total Amount:**", f"${order['total_amount']:.2f}")
+                        st.write("**Created:**", order['created_at'])
+                        st.write("**Updated:**", order['updated_at'])
+                    
+                    st.write("**Shipping Address:**")
+                    st.info(f"{order['shipping_address']}, {order['city']}, {order['state']} {order['zip_code']}")
+                    
+                    if 'items' in order and order['items']:
+                        st.write("**Order Items:**")
+                        items_df = pd.DataFrame(order['items'])
+                        st.dataframe(
+                            items_df,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "order_item_id": st.column_config.NumberColumn("Item ID", format="%d"),
+                                "product_id": st.column_config.NumberColumn("Product ID", format="%d"),
+                                "quantity": st.column_config.NumberColumn("Quantity", format="%d"),
+                                "price_at_purchase": st.column_config.NumberColumn("Price", format="$%.2f")
+                            }
+                        )
     else:
         st.info("No orders found")
         

@@ -51,6 +51,10 @@ try:
         # Convert to DataFrame
         df = pd.DataFrame(products)
         
+        # Sort by ID by default
+        if 'id' in df.columns:
+            df = df.sort_values('id').reset_index(drop=True)
+        
         # Display statistics
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -69,7 +73,7 @@ try:
         
         # Display products table
         st.dataframe(
-            df,
+            df.sort_values('id', ascending=True),
             use_container_width=True,
             hide_index=True,
             column_config={
