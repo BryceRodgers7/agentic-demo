@@ -33,7 +33,9 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute("SELECT 1")
+                    query = "SELECT 1"
+                    self._log_query(query, None)
+                    cursor.execute(query)
             logger.info("Database connection successful")
         except Exception as e:
             logger.error(f"Error connecting to database: {str(e)}", exc_info=True)
@@ -63,6 +65,20 @@ class DatabaseManager:
                 converted[key] = value
         return converted
     
+    @staticmethod
+    def _log_query(query: str, params: Any = None):
+        """Log SQL query with parameters for debugging.
+        
+        Args:
+            query: SQL query string
+            params: Query parameters (tuple, list, or dict)
+        """
+        logger.debug(f"SQL Query: {query}")
+        if params:
+            logger.debug(f"Parameters: {params}")
+        else:
+            logger.debug("Parameters: None")
+    
     @contextmanager
     def get_connection(self):
         """Context manager for database connections.
@@ -90,11 +106,11 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                    query = "SELECT * FROM agent_products WHERE 1=1" # what is the point of this??
+                    query = "SELECT * FROM agent_products WHERE 1=1"
                     params = []
                     
                     if category:
-                        query += " AND category = %s"
+                        query += " AND LOWER(category) = LOWER(%s)"
                         params.append(category)
                     
                     if search_query:
@@ -103,6 +119,7 @@ class DatabaseManager:
                     
                     query += " ORDER BY name"
                     
+                    self._log_query(query, params)
                     cursor.execute(query, params)
                     results = [self._prepare_for_json(dict(row)) for row in cursor.fetchall()]
                     logger.info(f"get_products query returned {len(results)} products (category={category}, search_query={search_query})")
@@ -123,7 +140,10 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                    cursor.execute("SELECT * FROM agent_products WHERE id = %s", (product_id,))
+                    query = "SELECT * FROM agent_products WHERE id = %s"
+                    params = (product_id,)
+                    self._log_query(query, params)
+                    cursor.execute(query, params)
                     row = cursor.fetchone()
                     result = self._prepare_for_json(dict(row)) if row else None
                     logger.info(f"get_product_by_id query for product_id={product_id} returned: {'product found' if result else 'None'}")
@@ -144,7 +164,10 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                    cursor.execute("SELECT stock_quantity FROM agent_products WHERE id = %s", (product_id,))
+                    query = "SELECT stock_quantity FROM agent_products WHERE id = %s"
+                    params = (product_id,)
+                    self._log_query(query, params)
+                    cursor.execute(query, params)
                     row = cursor.fetchone()
                     result = row['stock_quantity'] if row else None
                     logger.info(f"check_inventory query for product_id={product_id} returned stock_quantity: {result}")
@@ -163,10 +186,10 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute(
-                        "UPDATE agent_products SET stock_quantity = stock_quantity + %s WHERE id = %s",
-                        (quantity_change, product_id)
-                    )
+                    query = "UPDATE agent_products SET stock_quantity = stock_quantity + %s WHERE id = %s"
+                    params = (quantity_change, product_id)
+                    self._log_query(query, params)
+                    cursor.execute(query, params)
                     rows_affected = cursor.rowcount
                 conn.commit()
                 logger.info(f"update_inventory updated {rows_affected} row(s) for product_id={product_id}, quantity_change={quantity_change}")
@@ -198,7 +221,10 @@ class DatabaseManager:
                     order_items = []
                     
                     for product_id, quantity in zip(product_ids, quantities):
-                        cursor.execute("SELECT price FROM agent_products WHERE id = %s", (product_id,))
+                        query = "SELECT price FROM agent_products WHERE id = %s"
+                        params = (product_id,)
+                        self._log_query(query, params)
+                        cursor.execute(query, params)
                         row = cursor.fetchone()
                         if row:
                             price = row['price']
@@ -207,29 +233,29 @@ class DatabaseManager:
                             logger.info(f"create_order: Retrieved price ${price} for product_id={product_id}")
                     
                     # Create order
-                    cursor.execute(
-                        """INSERT INTO agent_orders (customer_name, customer_email, customer_phone, 
+                    query = """INSERT INTO agent_orders (customer_name, customer_email, customer_phone, 
                            shipping_address, total_amount, status) 
-                           VALUES (%s, %s, %s, %s, %s, 'pending') RETURNING id""",
-                        (customer_name, customer_email, customer_phone, shipping_address, total_amount)
-                    )
+                           VALUES (%s, %s, %s, %s, %s, 'pending') RETURNING id"""
+                    params = (customer_name, customer_email, customer_phone, shipping_address, total_amount)
+                    self._log_query(query, params)
+                    cursor.execute(query, params)
                     order_id = cursor.fetchone()['id']
                     logger.info(f"create_order: Created order_id={order_id} for customer={customer_name}, total_amount=${total_amount}")
                     
                     # Create order items
                     for product_id, quantity, price in order_items:
-                        cursor.execute(
-                            """INSERT INTO agent_order_items (order_id, product_id, quantity, price_at_purchase)
-                               VALUES (%s, %s, %s, %s)""",
-                            (order_id, product_id, quantity, price)
-                        )
+                        query = """INSERT INTO agent_order_items (order_id, product_id, quantity, price_at_purchase)
+                               VALUES (%s, %s, %s, %s)"""
+                        params = (order_id, product_id, quantity, price)
+                        self._log_query(query, params)
+                        cursor.execute(query, params)
                         logger.info(f"create_order: Created order item for order_id={order_id}, product_id={product_id}, quantity={quantity}")
                         
                         # Update inventory
-                        cursor.execute(
-                            "UPDATE agent_products SET stock_quantity = stock_quantity - %s WHERE id = %s",
-                            (quantity, product_id)
-                        )
+                        query = "UPDATE agent_products SET stock_quantity = stock_quantity - %s WHERE id = %s"
+                        params = (quantity, product_id)
+                        self._log_query(query, params)
+                        cursor.execute(query, params)
                         logger.info(f"create_order: Updated inventory for product_id={product_id}, reduced by {quantity}")
                     
                     conn.commit()
@@ -252,13 +278,13 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
                     # Get order with actual columns
-                    cursor.execute(
-                        """SELECT id as order_id, customer_name, customer_email, customer_phone,
+                    query = """SELECT id as order_id, customer_name, customer_email, customer_phone,
                                   shipping_address, zip_code, city, state,
                                   status, total_amount, created_at, updated_at 
-                           FROM agent_orders WHERE id = %s""", 
-                        (order_id,)
-                    )
+                           FROM agent_orders WHERE id = %s"""
+                    params = (order_id,)
+                    self._log_query(query, params)
+                    cursor.execute(query, params)
                     order_row = cursor.fetchone()
                     
                     if not order_row:
@@ -269,13 +295,13 @@ class DatabaseManager:
                     logger.info(f"get_order: Retrieved order_id={order_id}, status={order.get('status')}")
                     
                     # Get order items with aliased columns
-                    cursor.execute(
-                        """SELECT oi.id as order_item_id, oi.order_id, oi.product_id, 
+                    query = """SELECT oi.id as order_item_id, oi.order_id, oi.product_id, 
                                   oi.quantity, oi.price_at_purchase 
                            FROM agent_order_items oi 
-                           WHERE oi.order_id = %s""",
-                        (order_id,)
-                    )
+                           WHERE oi.order_id = %s"""
+                    params = (order_id,)
+                    self._log_query(query, params)
+                    cursor.execute(query, params)
                     order['items'] = [self._prepare_for_json(dict(row)) for row in cursor.fetchall()]
                     logger.info(f"get_order: Retrieved {len(order['items'])} order items for order_id={order_id}")
                     
@@ -308,6 +334,7 @@ class DatabaseManager:
                     
                     query += " ORDER BY created_at DESC"
                     
+                    self._log_query(query, params)
                     cursor.execute(query, params)
                     results = [self._prepare_for_json(dict(row)) for row in cursor.fetchall()]
                     logger.info(f"get_orders query returned {len(results)} orders (status={status})")
@@ -334,10 +361,10 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute(
-                        "UPDATE agent_orders SET status = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
-                        (status, order_id)
-                    )
+                    query = "UPDATE agent_orders SET status = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s"
+                    params = (status, order_id)
+                    self._log_query(query, params)
+                    cursor.execute(query, params)
                     rows_affected = cursor.rowcount
                 conn.commit()
                 logger.info(f"update_order_status updated {rows_affected} row(s) for order_id={order_id}, new status={status}")
@@ -376,6 +403,7 @@ class DatabaseManager:
                     
                     query += " ORDER BY base_rate"
                     
+                    self._log_query(query, params)
                     cursor.execute(query, params)
                     results = [self._prepare_for_json(dict(row)) for row in cursor.fetchall()]
                     logger.info(f"get_shipping_rates query returned {len(results)} rates (carrier={carrier}, service_type={service_type})")
@@ -397,13 +425,13 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                    cursor.execute(
-                        """SELECT carrier, service_type, base_rate, per_lb_rate, estimated_days 
+                    query = """SELECT carrier, service_type, base_rate, per_lb_rate, estimated_days 
                            FROM agent_shipping_rates 
                            WHERE zip_code = %s 
-                           ORDER BY estimated_days, base_rate""",
-                        (destination_zip,)
-                    )
+                           ORDER BY estimated_days, base_rate"""
+                    params = (destination_zip,)
+                    self._log_query(query, params)
+                    cursor.execute(query, params)
                     rows = cursor.fetchall()
                     
                     if not rows:
@@ -445,11 +473,11 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                    cursor.execute(
-                        """INSERT INTO agent_support_tickets (customer_name, customer_email, issue_description, priority, status)
-                           VALUES (%s, %s, %s, %s, 'open') RETURNING id""",
-                        (customer_name, customer_email, issue_description, priority)
-                    )
+                    query = """INSERT INTO agent_support_tickets (customer_name, customer_email, issue_description, priority, status)
+                           VALUES (%s, %s, %s, %s, 'open') RETURNING id"""
+                    params = (customer_name, customer_email, issue_description, priority)
+                    self._log_query(query, params)
+                    cursor.execute(query, params)
                     ticket_id = cursor.fetchone()['id']
                     conn.commit()
                     logger.info(f"create_support_ticket: Created ticket_id={ticket_id} for customer={customer_name}, priority={priority}")
@@ -470,13 +498,13 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                    cursor.execute(
-                        """SELECT id as ticket_id, customer_name, customer_email, product_id,
+                    query = """SELECT id as ticket_id, customer_name, customer_email, product_id,
                                   issue_description, priority, status, assigned_to,
                                   created_at, updated_at, resolved_at 
-                           FROM agent_support_tickets WHERE id = %s""", 
-                        (ticket_id,)
-                    )
+                           FROM agent_support_tickets WHERE id = %s"""
+                    params = (ticket_id,)
+                    self._log_query(query, params)
+                    cursor.execute(query, params)
                     row = cursor.fetchone()
                     result = self._prepare_for_json(dict(row)) if row else None
                     logger.info(f"get_support_ticket: Query for ticket_id={ticket_id} returned: {'ticket found' if result else 'None'}")
@@ -509,6 +537,7 @@ class DatabaseManager:
                     
                     query += " ORDER BY created_at DESC"
                     
+                    self._log_query(query, params)
                     cursor.execute(query, params)
                     results = [self._prepare_for_json(dict(row)) for row in cursor.fetchall()]
                     logger.info(f"get_support_tickets query returned {len(results)} tickets (status={status})")
@@ -536,17 +565,17 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
                     if status == 'resolved':
-                        cursor.execute(
-                            """UPDATE agent_support_tickets 
+                        query = """UPDATE agent_support_tickets 
                                SET status = %s, updated_at = CURRENT_TIMESTAMP, resolved_at = CURRENT_TIMESTAMP 
-                               WHERE id = %s""",
-                            (status, ticket_id)
-                        )
+                               WHERE id = %s"""
+                        params = (status, ticket_id)
+                        self._log_query(query, params)
+                        cursor.execute(query, params)
                     else:
-                        cursor.execute(
-                            "UPDATE agent_support_tickets SET status = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
-                            (status, ticket_id)
-                        )
+                        query = "UPDATE agent_support_tickets SET status = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s"
+                        params = (status, ticket_id)
+                        self._log_query(query, params)
+                        cursor.execute(query, params)
                     rows_affected = cursor.rowcount
                 conn.commit()
                 logger.info(f"update_ticket_status updated {rows_affected} row(s) for ticket_id={ticket_id}, new status={status}")
@@ -575,12 +604,12 @@ class DatabaseManager:
                     # If no specific products provided, return entire order
                     if not product_ids:
                         # Get all items in the order
-                        cursor.execute(
-                            """SELECT oi.product_id, oi.quantity, oi.price_at_purchase
+                        query = """SELECT oi.product_id, oi.quantity, oi.price_at_purchase
                                FROM agent_order_items oi
-                               WHERE oi.order_id = %s""",
-                            (order_id,)
-                        )
+                               WHERE oi.order_id = %s"""
+                        params = (order_id,)
+                        self._log_query(query, params)
+                        cursor.execute(query, params)
                         items = cursor.fetchall()
                         
                         if not items:
@@ -597,12 +626,12 @@ class DatabaseManager:
                     
                     for product_id, quantity in zip(product_ids, quantities):
                         # Get the price at purchase for this product
-                        cursor.execute(
-                            """SELECT oi.price_at_purchase, oi.quantity as ordered_quantity
+                        query = """SELECT oi.price_at_purchase, oi.quantity as ordered_quantity
                                FROM agent_order_items oi
-                               WHERE oi.order_id = %s AND oi.product_id = %s""",
-                            (order_id, product_id)
-                        )
+                               WHERE oi.order_id = %s AND oi.product_id = %s"""
+                        params = (order_id, product_id)
+                        self._log_query(query, params)
+                        cursor.execute(query, params)
                         item = cursor.fetchone()
                         
                         if not item:
@@ -623,21 +652,21 @@ class DatabaseManager:
                         logger.info(f"create_return: Planning return item for product_id={product_id}, quantity={quantity}, refund=${item_refund}")
                     
                     # Create the return order (single record)
-                    cursor.execute(
-                        """INSERT INTO agent_return_orders (order_id, return_reason, status, refund_total_amount)
-                           VALUES (%s, %s, 'pending', %s) RETURNING id""",
-                        (order_id, return_reason, refund_total_amount)
-                    )
+                    query = """INSERT INTO agent_return_orders (order_id, return_reason, status, refund_total_amount)
+                           VALUES (%s, %s, 'pending', %s) RETURNING id"""
+                    params = (order_id, return_reason, refund_total_amount)
+                    self._log_query(query, params)
+                    cursor.execute(query, params)
                     return_id = cursor.fetchone()['id']
                     logger.info(f"create_return: Created return_id={return_id} for order_id={order_id}, total_refund=${refund_total_amount}")
                     
                     # Create return items (one for each product being returned)
                     for item_data in return_items_data:
-                        cursor.execute(
-                            """INSERT INTO agent_return_items (return_id, product_id, quantity, price_at_purchase)
-                               VALUES (%s, %s, %s, %s)""",
-                            (return_id, item_data['product_id'], item_data['quantity'], item_data['price_at_purchase'])
-                        )
+                        query = """INSERT INTO agent_return_items (return_id, product_id, quantity, price_at_purchase)
+                               VALUES (%s, %s, %s, %s)"""
+                        params = (return_id, item_data['product_id'], item_data['quantity'], item_data['price_at_purchase'])
+                        self._log_query(query, params)
+                        cursor.execute(query, params)
                         logger.info(f"create_return: Created return item for return_id={return_id}, product_id={item_data['product_id']}, quantity={item_data['quantity']}")
                     
                     conn.commit()
@@ -661,13 +690,13 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
                     # Get return order with actual columns
-                    cursor.execute(
-                        """SELECT id as return_id, order_id,
+                    query = """SELECT id as return_id, order_id,
                                   return_reason as reason, status, refund_total_amount,
                                   created_at, updated_at, processed_at
-                           FROM agent_return_orders WHERE id = %s""", 
-                        (return_id,)
-                    )
+                           FROM agent_return_orders WHERE id = %s"""
+                    params = (return_id,)
+                    self._log_query(query, params)
+                    cursor.execute(query, params)
                     row = cursor.fetchone()
                     
                     if not row:
@@ -678,14 +707,14 @@ class DatabaseManager:
                     logger.info(f"get_return: Retrieved return_id={return_id}, status={return_order.get('status')}")
                     
                     # Get return items with aliased columns
-                    cursor.execute(
-                        """SELECT ri.id as return_item_id, ri.return_id, ri.product_id,
+                    query = """SELECT ri.id as return_item_id, ri.return_id, ri.product_id,
                                   ri.quantity, ri.price_at_purchase as refund_amount,
                                   'Item return' as reason
                            FROM agent_return_items ri
-                           WHERE ri.return_id = %s""",
-                        (return_id,)
-                    )
+                           WHERE ri.return_id = %s"""
+                    params = (return_id,)
+                    self._log_query(query, params)
+                    cursor.execute(query, params)
                     return_order['items'] = [self._prepare_for_json(dict(item_row)) for item_row in cursor.fetchall()]
                     logger.info(f"get_return: Retrieved {len(return_order['items'])} return items for return_id={return_id}")
                     
@@ -718,19 +747,20 @@ class DatabaseManager:
                     
                     query += " ORDER BY created_at DESC"
                     
+                    self._log_query(query, params)
                     cursor.execute(query, params)
                     returns = [self._prepare_for_json(dict(row)) for row in cursor.fetchall()]
                     
                     # Get items for each return
                     for return_order in returns:
-                        cursor.execute(
-                            """SELECT ri.id as return_item_id, ri.return_id, ri.product_id,
+                        query = """SELECT ri.id as return_item_id, ri.return_id, ri.product_id,
                                       ri.quantity, ri.price_at_purchase as refund_amount,
                                       'Item return' as reason
                                FROM agent_return_items ri
-                               WHERE ri.return_id = %s""",
-                            (return_order['return_id'],)
-                        )
+                               WHERE ri.return_id = %s"""
+                        params = (return_order['return_id'],)
+                        self._log_query(query, params)
+                        cursor.execute(query, params)
                         return_order['items'] = [self._prepare_for_json(dict(item_row)) for item_row in cursor.fetchall()]
                     
                     logger.info(f"get_returns query returned {len(returns)} returns (status={status})")
@@ -758,17 +788,17 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
                     if status == 'processed':
-                        cursor.execute(
-                            """UPDATE agent_return_orders 
+                        query = """UPDATE agent_return_orders 
                                SET status = %s, updated_at = CURRENT_TIMESTAMP, processed_at = CURRENT_TIMESTAMP 
-                               WHERE id = %s""",
-                            (status, return_id)
-                        )
+                               WHERE id = %s"""
+                        params = (status, return_id)
+                        self._log_query(query, params)
+                        cursor.execute(query, params)
                     else:
-                        cursor.execute(
-                            "UPDATE agent_return_orders SET status = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
-                            (status, return_id)
-                        )
+                        query = "UPDATE agent_return_orders SET status = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s"
+                        params = (status, return_id)
+                        self._log_query(query, params)
+                        cursor.execute(query, params)
                     rows_affected = cursor.rowcount
                 conn.commit()
                 logger.info(f"update_return_status updated {rows_affected} row(s) for return_id={return_id}, new status={status}")

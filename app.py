@@ -9,8 +9,14 @@ from chatbot.prompts import WELCOME_MESSAGE
 from tools.schemas import get_tool_descriptions
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, log_level), format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Enable query logging if DEBUG_QUERIES environment variable is set
+# if os.getenv("DEBUG_QUERIES", "").lower() in ("true", "1", "yes"):
+logging.getLogger('database.db_manager').setLevel(logging.DEBUG)
+logger.info("Query logging enabled (DEBUG level)")
 
 
 # Page configuration

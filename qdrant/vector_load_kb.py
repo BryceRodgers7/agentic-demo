@@ -15,8 +15,9 @@ client = QdrantClient(url=os.getenv("QDRANT_URL"), api_key=os.getenv("QDRANT_API
 embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")  # fast + good demo choice
 
 # 0) Load chunks from JSON file
-print("Loading chunks from chunks.json...")
-chunks_path = os.path.join(os.path.dirname(__file__), "chunks.json")
+chunks_path = os.path.join(os.path.dirname(__file__), "newchunks.json")
+# chunks_path = os.path.join(os.path.dirname(__file__), "chunks.json")
+print("Loading chunks from file: ", chunks_path)
 with open(chunks_path, "r", encoding="utf-8") as f:
     data = json.load(f)
     chunks = data["chunks"]  # Extract the chunks array from the JSON
@@ -110,7 +111,8 @@ chunk_list.sort()
 
 # 7) Write metadata to file
 print("Writing metadata to chunk_metadata.txt...")
-metadata_path = os.path.join(os.path.dirname(__file__), "chunk_metadata.txt")
+metadata_path = os.path.join(os.path.dirname(__file__), "newchunk_metadata.txt")
+# metadata_path = os.path.join(os.path.dirname(__file__), "chunk_metadata.txt")
 with open(metadata_path, "w", encoding="utf-8") as f:
     f.write("=" * 80 + "\n")
     f.write("CHUNK METADATA REPORT\n")

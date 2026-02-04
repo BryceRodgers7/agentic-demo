@@ -257,6 +257,13 @@ class ToolImplementations:
             Result dictionary with products
         """
         try:
+            # Normalize category to singular lowercase form
+            if category:
+                category = category.lower().strip()
+                # Convert plural to singular
+                if category.endswith('s') and category not in ['accessories']:
+                    category = category[:-1]  # Remove trailing 's'
+            
             products = self.db.get_products(category=category, search_query=search_query)
             
             return {

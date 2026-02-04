@@ -28,8 +28,102 @@ class CustomerSupportAgent:
         self.client = OpenAI(api_key=self.api_key) if self.api_key else None
         self.tools = ToolImplementations()
         
+        # Cache for SOPs to avoid repeated searches
+        self.sop_cache = {}
+        
         if not self.client:
             print("Warning: OpenAI API key not configured. Agent will not function properly.")
+    
+    def _detect_likely_tools(self, user_message: str) -> List[str]:
+        """Detect which tools are likely needed based on user message.
+        
+        Args:
+            user_message: User's message
+            
+        Returns:
+            List of likely tool names
+        """
+        message_lower = user_message.lower()
+        likely_tools = []
+        
+        # Order-related keywords
+        if any(word in message_lower for word in ['order', 'place order', 'buy', 'purchase', 'want to order']):
+            likely_tools.extend(['draft_order', 'create_order'])
+        
+        # Order status keywords
+        if any(word in message_lower for word in ['order status', 'track', 'where is my', 'order #', 'order number']):
+            likely_tools.append('order_status')
+        
+        # Return keywords
+        if any(word in message_lower for word in ['return', 'refund', 'send back', 'defective']):
+            likely_tools.extend(['order_status', 'initiate_return'])
+        
+        # Product browsing keywords
+        if any(word in message_lower for word in ['browse', 'show me', 'looking for', 'available', 'products', 'catalog']):
+            likely_tools.append('product_catalog')
+        
+        # Shipping keywords
+        if any(word in message_lower for word in ['shipping', 'delivery', 'ship to', 'how much to ship']):
+            likely_tools.append('estimate_shipping')
+        
+        # Remove duplicates while preserving order
+        return list(dict.fromkeys(likely_tools))
+    
+    def _inject_relevant_sops(self, messages: List[Dict[str, Any]], user_message: str) -> List[Dict[str, Any]]:
+        """Inject relevant SOPs from knowledge base based on likely tools needed.
+        
+        Args:
+            messages: Current conversation messages
+            user_message: User's latest message
+            
+        Returns:
+            Messages with SOPs injected
+        """
+        likely_tools = self._detect_likely_tools(user_message)
+        
+        if not likely_tools:
+            return messages
+        
+        # Search for SOPs for each likely tool
+        sop_contents = []
+        for tool_name in likely_tools:
+            # Check cache first
+            if tool_name in self.sop_cache:
+                sop_contents.append(self.sop_cache[tool_name])
+                logger.info(f"Using cached SOP for {tool_name}")
+                continue
+            
+            # Search knowledge base
+            search_query = f"agent-sop-{tool_name}"
+            try:
+                results = self.tools.vector_store.search_by_text(search_query, limit=1)
+                
+                if results and len(results) > 0:
+                    payload = results[0].get('payload', {})
+                    if payload.get('audience') == 'agent' and payload.get('doc_type') == 'sop':
+                        sop_content = payload.get('content', '')
+                        sop_title = payload.get('title', f'{tool_name} SOP')
+                        
+                        formatted_sop = f"=== {sop_title} ===\n{sop_content}"
+                        sop_contents.append(formatted_sop)
+                        
+                        # Cache the SOP
+                        self.sop_cache[tool_name] = formatted_sop
+                        logger.info(f"Found and cached SOP for {tool_name}")
+            except Exception as e:
+                logger.warning(f"Could not retrieve SOP for {tool_name}: {str(e)}")
+        
+        # If we found SOPs, inject them as a system message after the main prompt
+        if sop_contents:
+            sop_message = {
+                "role": "system",
+                "content": "RELEVANT PROCEDURES:\n\n" + "\n\n".join(sop_contents)
+            }
+            # Insert after system prompt (position 1)
+            messages.insert(1, sop_message)
+            logger.info(f"Injected {len(sop_contents)} SOP(s) into conversation")
+        
+        return messages
     
     def chat(self, user_message: str, conversation_history: Optional[List[Dict[str, Any]]] = None) -> Tuple[str, List[Dict[str, Any]]]:
         """Process a user message and return response with tool usage.
@@ -52,6 +146,9 @@ class CustomerSupportAgent:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend(conversation_history)
         messages.append({"role": "user", "content": user_message})
+        
+        # Inject relevant SOPs based on user message
+        messages = self._inject_relevant_sops(messages, user_message)
         
         tool_calls_made = []
         max_iterations = 5  # Prevent infinite loops
