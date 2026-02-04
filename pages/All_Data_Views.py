@@ -101,6 +101,7 @@ with tab1:
             st.dataframe(
                 df,
                 use_container_width=True,
+                height=500,
                 hide_index=True,
                 column_config={
                     "id": st.column_config.NumberColumn("ID", format="%d"),
@@ -143,6 +144,24 @@ with tab2:
         if orders:
             st.success(f"Found {len(orders)} order(s)")
             
+            # Fetch all order items with product names in a single query
+            order_ids = [order['order_id'] for order in orders]
+            items_by_order = db.get_order_items_bulk(order_ids)
+            
+            # Add formatted items to orders
+            for order in orders:
+                order_id = order['order_id']
+                if order_id in items_by_order:
+                    items = items_by_order[order_id]
+                    # Format with line breaks for better display
+                    formatted_items = []
+                    for item in items:
+                        product_name = item.get('product_name', f"Product {item['product_id']}")
+                        formatted_items.append(f"{product_name} (qty: {item['quantity']})")
+                    order['items'] = "\n".join(formatted_items)
+                else:
+                    order['items'] = "No items"
+            
             df = pd.DataFrame(orders)
             
             # Ensure order_id is numeric for proper sorting
@@ -172,12 +191,14 @@ with tab2:
             st.dataframe(
                 df,
                 use_container_width=True,
+                height=500,
                 hide_index=True,
                 column_config={
                     "order_id": st.column_config.NumberColumn("Order ID", format="%d"),
-                    "customer_id": st.column_config.NumberColumn("Customer ID", format="%d"),
+                    "customer_name": st.column_config.TextColumn("Customer", width="medium"),
                     "total_amount": st.column_config.NumberColumn("Total Amount", format="$%.2f"),
                     "status": st.column_config.TextColumn("Status", width="small"),
+                    "items": st.column_config.TextColumn("Items", width="large"),
                     "created_at": st.column_config.DatetimeColumn("Created At", format="YYYY-MM-DD HH:mm"),
                     "updated_at": st.column_config.DatetimeColumn("Updated At", format="YYYY-MM-DD HH:mm")
                 }
@@ -239,6 +260,7 @@ with tab3:
             st.dataframe(
                 df,
                 use_container_width=True,
+                height=500,
                 hide_index=True,
                 column_config={
                     "id": st.column_config.NumberColumn("ID", format="%d"),
@@ -309,13 +331,13 @@ with tab4:
             st.dataframe(
                 df,
                 use_container_width=True,
+                height=500,
                 hide_index=True,
                 column_config={
                     "ticket_id": st.column_config.NumberColumn("Ticket ID", format="%d"),
-                    "customer_id": st.column_config.NumberColumn("Customer ID", format="%d"),
-                    "order_id": st.column_config.NumberColumn("Order ID", format="%d"),
-                    "subject": st.column_config.TextColumn("Subject", width="medium"),
-                    "description": st.column_config.TextColumn("Description", width="large"),
+                    "customer_name": st.column_config.TextColumn("Customer", width="medium"),
+                    "product_id": st.column_config.NumberColumn("Product ID", format="%d"),
+                    "issue_description": st.column_config.TextColumn("Description", width="large"),
                     "status": st.column_config.TextColumn("Status", width="small"),
                     "priority": st.column_config.TextColumn("Priority", width="small"),
                     "created_at": st.column_config.DatetimeColumn("Created At", format="YYYY-MM-DD HH:mm"),
@@ -348,10 +370,32 @@ with tab5:
     
     try:
         status = None if return_status_filter == "All Statuses" else return_status_filter
-        returns = db.get_returns(status=status)
+        
+        # Get returns with customer info
+        returns = db.get_returns_with_customer_info(status=status)
         
         if returns:
             st.success(f"Found {len(returns)} return(s)")
+            
+            # Fetch all return items with product names in a single query
+            return_ids = [r['return_id'] for r in returns]
+            items_by_return = db.get_return_items_bulk(return_ids)
+            
+            # Add formatted items to returns
+            for return_order in returns:
+                return_id = return_order['return_id']
+                if return_id in items_by_return:
+                    items = items_by_return[return_id]
+                    # Format with line breaks for better display
+                    formatted_items = []
+                    for item in items:
+                        product_name = item.get('product_name', f"Product {item['product_id']}")
+                        # price_at_purchase is already converted to float by _prepare_for_json
+                        refund_amount = item['price_at_purchase'] * item['quantity']
+                        formatted_items.append(f"{product_name} (qty: {item['quantity']}, refund: ${refund_amount:.2f})")
+                    return_order['items'] = "\n".join(formatted_items)
+                else:
+                    return_order['items'] = "No items"
             
             df = pd.DataFrame(returns)
             
@@ -382,20 +426,21 @@ with tab5:
             st.dataframe(
                 df,
                 use_container_width=True,
+                height=500,
                 hide_index=True,
                 column_config={
                     "return_id": st.column_config.NumberColumn("Return ID", format="%d"),
                     "order_id": st.column_config.NumberColumn("Order ID", format="%d"),
-                    "customer_id": st.column_config.NumberColumn("Customer ID", format="%d"),
                     "reason": st.column_config.TextColumn("Reason", width="medium"),
                     "status": st.column_config.TextColumn("Status", width="small"),
+                    "items": st.column_config.TextColumn("Items", width="large"),
                     "refund_total_amount": st.column_config.NumberColumn("Refund Amount", format="$%.2f"),
                     "created_at": st.column_config.DatetimeColumn("Created At", format="YYYY-MM-DD HH:mm"),
                     "updated_at": st.column_config.DatetimeColumn("Updated At", format="YYYY-MM-DD HH:mm")
                 }
             )
-        else:
-            st.info("No returns found")
+        else:[[
+            st.info("No returns found")]]
             
     except Exception as e:
         st.error(f"Error loading returns: {str(e)}")

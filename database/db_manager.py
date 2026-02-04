@@ -372,6 +372,42 @@ class DatabaseManager:
             logger.error(f"Error in update_order_status for order_id={order_id}, status={status}: {str(e)}", exc_info=True)
             raise
     
+    def get_order_items_bulk(self, order_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
+        """Get order items for multiple orders in a single query.
+        
+        Args:
+            order_ids: List of order IDs
+            
+        Returns:
+            Dictionary mapping order_id to list of item dictionaries with product names
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                    query = """SELECT oi.order_id, oi.product_id, oi.quantity, oi.price_at_purchase,
+                                      p.name as product_name
+                               FROM agent_order_items oi
+                               LEFT JOIN agent_products p ON oi.product_id = p.id
+                               WHERE oi.order_id = ANY(%s)
+                               ORDER BY oi.order_id, oi.id"""
+                    params = (order_ids,)
+                    self._log_query(query, params)
+                    cursor.execute(query, params)
+                    
+                    # Group items by order_id
+                    items_by_order = {}
+                    for row in cursor.fetchall():
+                        order_id = row['order_id']
+                        if order_id not in items_by_order:
+                            items_by_order[order_id] = []
+                        items_by_order[order_id].append(self._prepare_for_json(dict(row)))
+                    
+                    logger.info(f"get_order_items_bulk fetched items for {len(items_by_order)} orders")
+                    return items_by_order
+        except Exception as e:
+            logger.error(f"Error in get_order_items_bulk: {str(e)}", exc_info=True)
+            raise
+    
     # Shipping operations
     def get_shipping_rates(self, carrier: Optional[str] = None, service_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get shipping rates.
@@ -804,5 +840,77 @@ class DatabaseManager:
                 logger.info(f"update_return_status updated {rows_affected} row(s) for return_id={return_id}, new status={status}")
         except Exception as e:
             logger.error(f"Error in update_return_status for return_id={return_id}, status={status}: {str(e)}", exc_info=True)
+            raise
+    
+    def get_return_items_bulk(self, return_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
+        """Get return items for multiple returns in a single query.
+        
+        Args:
+            return_ids: List of return IDs
+            
+        Returns:
+            Dictionary mapping return_id to list of item dictionaries with product names
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                    query = """SELECT ri.return_id, ri.product_id, ri.quantity, ri.price_at_purchase,
+                                      p.name as product_name
+                               FROM agent_return_items ri
+                               LEFT JOIN agent_products p ON ri.product_id = p.id
+                               WHERE ri.return_id = ANY(%s)
+                               ORDER BY ri.return_id, ri.id"""
+                    params = (return_ids,)
+                    self._log_query(query, params)
+                    cursor.execute(query, params)
+                    
+                    # Group items by return_id
+                    items_by_return = {}
+                    for row in cursor.fetchall():
+                        return_id = row['return_id']
+                        if return_id not in items_by_return:
+                            items_by_return[return_id] = []
+                        items_by_return[return_id].append(self._prepare_for_json(dict(row)))
+                    
+                    logger.info(f"get_return_items_bulk fetched items for {len(items_by_return)} returns")
+                    return items_by_return
+        except Exception as e:
+            logger.error(f"Error in get_return_items_bulk: {str(e)}", exc_info=True)
+            raise
+    
+    def get_returns_with_customer_info(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get returns with customer information from orders.
+        
+        Args:
+            status: Filter by status (optional)
+            
+        Returns:
+            List of return dictionaries with customer info
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                    query = """SELECT ro.id as return_id, ro.order_id,
+                                      ro.return_reason as reason, ro.status, ro.refund_total_amount,
+                                      ro.created_at, ro.updated_at, ro.processed_at,
+                                      o.customer_name, o.customer_email
+                               FROM agent_return_orders ro
+                               LEFT JOIN agent_orders o ON ro.order_id = o.id
+                               WHERE 1=1"""
+                    params = []
+                    
+                    if status:
+                        query += " AND ro.status = %s"
+                        params.append(status)
+                    
+                    query += " ORDER BY ro.created_at DESC"
+                    
+                    self._log_query(query, params)
+                    cursor.execute(query, params)
+                    results = [self._prepare_for_json(dict(row)) for row in cursor.fetchall()]
+                    logger.info(f"get_returns_with_customer_info query returned {len(results)} returns (status={status})")
+                    return results
+        except Exception as e:
+            logger.error(f"Error in get_returns_with_customer_info: {str(e)}", exc_info=True)
             raise
 
