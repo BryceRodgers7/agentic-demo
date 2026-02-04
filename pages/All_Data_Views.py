@@ -148,19 +148,14 @@ with tab2:
             order_ids = [order['order_id'] for order in orders]
             items_by_order = db.get_order_items_bulk(order_ids)
             
-            # Add formatted items to orders
+            # Add item count and summary to orders
             for order in orders:
                 order_id = order['order_id']
                 if order_id in items_by_order:
                     items = items_by_order[order_id]
-                    # Format with line breaks for better display
-                    formatted_items = []
-                    for item in items:
-                        product_name = item.get('product_name', f"Product {item['product_id']}")
-                        formatted_items.append(f"{product_name} (qty: {item['quantity']})")
-                    order['items'] = "\n".join(formatted_items)
+                    order['item_count'] = f"{len(items)} item(s)"
                 else:
-                    order['items'] = "No items"
+                    order['item_count'] = "0 items"
             
             df = pd.DataFrame(orders)
             
@@ -198,11 +193,23 @@ with tab2:
                     "customer_name": st.column_config.TextColumn("Customer", width="medium"),
                     "total_amount": st.column_config.NumberColumn("Total Amount", format="$%.2f"),
                     "status": st.column_config.TextColumn("Status", width="small"),
-                    "items": st.column_config.TextColumn("Items", width="large"),
+                    "item_count": st.column_config.TextColumn("Items", width="small"),
                     "created_at": st.column_config.DatetimeColumn("Created At", format="YYYY-MM-DD HH:mm"),
                     "updated_at": st.column_config.DatetimeColumn("Updated At", format="YYYY-MM-DD HH:mm")
                 }
             )
+            
+            # Add expandable section to view full item details
+            with st.expander("🔍 View Detailed Item Information"):
+                st.caption("Expand any order below to see full item details")
+                for order in orders:
+                    order_id = order['order_id']
+                    if order_id in items_by_order:
+                        items = items_by_order[order_id]
+                        with st.expander(f"Order #{order_id} - {order['customer_name']} ({len(items)} items)"):
+                            for item in items:
+                                product_name = item.get('product_name', f"Product {item['product_id']}")
+                                st.write(f"• **{product_name}** - Quantity: {item['quantity']}, Price: ${item['price_at_purchase']:.2f}")
         else:
             st.info("No orders found")
             
@@ -381,21 +388,14 @@ with tab5:
             return_ids = [r['return_id'] for r in returns]
             items_by_return = db.get_return_items_bulk(return_ids)
             
-            # Add formatted items to returns
+            # Add item count to returns
             for return_order in returns:
                 return_id = return_order['return_id']
                 if return_id in items_by_return:
                     items = items_by_return[return_id]
-                    # Format with line breaks for better display
-                    formatted_items = []
-                    for item in items:
-                        product_name = item.get('product_name', f"Product {item['product_id']}")
-                        # price_at_purchase is already converted to float by _prepare_for_json
-                        refund_amount = item['price_at_purchase'] * item['quantity']
-                        formatted_items.append(f"{product_name} (qty: {item['quantity']}, refund: ${refund_amount:.2f})")
-                    return_order['items'] = "\n".join(formatted_items)
+                    return_order['item_count'] = f"{len(items)} item(s)"
                 else:
-                    return_order['items'] = "No items"
+                    return_order['item_count'] = "0 items"
             
             df = pd.DataFrame(returns)
             
@@ -433,12 +433,25 @@ with tab5:
                     "order_id": st.column_config.NumberColumn("Order ID", format="%d"),
                     "reason": st.column_config.TextColumn("Reason", width="medium"),
                     "status": st.column_config.TextColumn("Status", width="small"),
-                    "items": st.column_config.TextColumn("Items", width="large"),
+                    "item_count": st.column_config.TextColumn("Items", width="small"),
                     "refund_total_amount": st.column_config.NumberColumn("Refund Amount", format="$%.2f"),
                     "created_at": st.column_config.DatetimeColumn("Created At", format="YYYY-MM-DD HH:mm"),
                     "updated_at": st.column_config.DatetimeColumn("Updated At", format="YYYY-MM-DD HH:mm")
                 }
             )
+            
+            # Add expandable section to view full item details
+            with st.expander("🔍 View Detailed Item Information"):
+                st.caption("Expand any return below to see full item details")
+                for return_order in returns:
+                    return_id = return_order['return_id']
+                    if return_id in items_by_return:
+                        items = items_by_return[return_id]
+                        with st.expander(f"Return #{return_id} - Order #{return_order['order_id']} ({len(items)} items)"):
+                            for item in items:
+                                product_name = item.get('product_name', f"Product {item['product_id']}")
+                                refund_amount = item['price_at_purchase'] * item['quantity']
+                                st.write(f"• **{product_name}** - Quantity: {item['quantity']}, Refund: ${refund_amount:.2f}")
         else:[[
             st.info("No returns found")]]
             
