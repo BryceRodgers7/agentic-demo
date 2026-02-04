@@ -74,6 +74,13 @@ with tab1:
             
             df = pd.DataFrame(products)
             
+            # Ensure id is numeric for proper sorting
+            if 'id' in df.columns:
+                df['id'] = pd.to_numeric(df['id'], errors='coerce')
+            
+            # Sort by id ascending by default
+            df = df.sort_values('id', ascending=True)
+            
             # Display statistics
             col1, col2, col3, col4 = st.columns(4)
             with col1:
@@ -138,6 +145,13 @@ with tab2:
             
             df = pd.DataFrame(orders)
             
+            # Ensure order_id is numeric for proper sorting
+            if 'order_id' in df.columns:
+                df['order_id'] = pd.to_numeric(df['order_id'], errors='coerce')
+            
+            # Sort by order_id ascending by default
+            df = df.sort_values('order_id', ascending=True)
+            
             # Display statistics
             col1, col2, col3, col4 = st.columns(4)
             with col1:
@@ -201,6 +215,13 @@ with tab3:
             
             df = pd.DataFrame(shipping_rates)
             
+            # Ensure id is numeric for proper sorting
+            if 'id' in df.columns:
+                df['id'] = pd.to_numeric(df['id'], errors='coerce')
+            
+            # Sort by id ascending by default
+            df = df.sort_values('id', ascending=True)
+            
             # Display statistics
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -260,6 +281,13 @@ with tab4:
             st.success(f"Found {len(tickets)} ticket(s)")
             
             df = pd.DataFrame(tickets)
+            
+            # Ensure ticket_id is numeric for proper sorting
+            if 'ticket_id' in df.columns:
+                df['ticket_id'] = pd.to_numeric(df['ticket_id'], errors='coerce')
+            
+            # Sort by ticket_id ascending by default
+            df = df.sort_values('ticket_id', ascending=True)
             
             # Display statistics
             col1, col2, col3, col4 = st.columns(4)
@@ -326,6 +354,13 @@ with tab5:
             st.success(f"Found {len(returns)} return(s)")
             
             df = pd.DataFrame(returns)
+            
+            # Ensure return_id is numeric for proper sorting
+            if 'return_id' in df.columns:
+                df['return_id'] = pd.to_numeric(df['return_id'], errors='coerce')
+            
+            # Sort by return_id ascending by default
+            df = df.sort_values('return_id', ascending=True)
             
             # Display statistics
             col1, col2, col3, col4 = st.columns(4)
